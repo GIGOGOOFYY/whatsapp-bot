@@ -27,7 +27,7 @@
 
   "polishing": {
     "note": "Edge polishing per sqft",
-    "flat_polish": 35
+    "flat_polish": 30
   },
 
   "beveling": {
