@@ -1,0 +1,77 @@
+{
+  "lastUpdated": "2026-06-01",
+  "updatedBy": "admin",
+  "currency": "PKR",
+  "unit": "per sqft",
+
+  "glass": {
+    "note": "Full glass supply rates including material",
+    "4mm": 300,
+    "5mm": 350,
+    "6mm": 375,
+    "8mm": 550,
+    "10mm": 750,
+    "12mm_with_holes": 850,
+    "12mm_without_holes": 800
+  },
+
+  "tempering": {
+    "note": "Tempering service rates only (processing fee)",
+    "4mm": 60,
+    "5mm": 65,
+    "6mm": 70,
+    "8mm": 75,
+    "10mm": 85,
+    "12mm": 100
+  },
+
+  "polishing": {
+    "note": "Edge polishing per sqft",
+    "flat_polish": 35
+  },
+
+  "beveling": {
+    "note": "Beveling rate",
+    "per_sqft": null
+  },
+
+  "double_glaze": {
+    "note": "Double glazed unit (DGU) rate",
+    "per_sqft": null
+  },
+
+  "lamination": {
+    "note": "Lamination rate",
+    "per_sqft": null
+  },
+
+  "bent_glass": {
+    "note": "Bent/curved glass rate",
+    "per_sqft": null
+  },
+
+  "tempered_bent": {
+    "note": "Tempered bent glass rate",
+    "per_sqft": null
+  },
+
+  "printing": {
+    "note": "Glass printing rate",
+    "per_sqft": null
+  },
+
+  "frosting": {
+    "note": "Frosting rate",
+    "per_sqft": null
+  },
+
+  "aluminum_window": {
+    "note": "Aluminum window rate",
+    "per_sqft": null
+  },
+
+  "curtain_wall": {
+    "note": "Curtain wall rate",
+    "per_sqft": null
+  }
+}
