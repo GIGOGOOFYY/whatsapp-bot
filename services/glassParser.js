@@ -1,13 +1,12 @@
 function detectLayers(text) {
-const matches = text.match(/\d++\d+(+\d+)*/);
+const matches = text.match(/\d+\+\d+(\+\d+)*/);
 
-```
 if (!matches) return 1;
 
 return matches[0].split('+').length;
-```
 
 }
+
 
 function extractThicknesses(text) {
 // Detect formats like:
@@ -16,7 +15,6 @@ function extractThicknesses(text) {
 // 12+12
 // 8+8+8
 
-```
 const layered = text.match(/(\d+)(\+\d+)+/);
 
 if (layered) {
@@ -33,7 +31,6 @@ if (single) {
 }
 
 return [];
-```
 
 }
 
@@ -43,7 +40,7 @@ function extractDimensions(text) {
 // 1000 x 2000
 // 1ft x 1ft
 
-```
+
 const ftMatch = text.match(/(\d+(?:\.\d+)?)\s?ft\s?[xX]\s?(\d+(?:\.\d+)?)\s?ft/i);
 
 if (ftMatch) {
@@ -61,18 +58,18 @@ return {
     widthMM: parseInt(mmMatch[1]),
     heightMM: parseInt(mmMatch[2])
 };
-```
+
 
 }
 
 function extractPieces(text) {
 const match = text.match(/(\d+)\s?(piece|pcs|pieces)/i);
 
-```
+
 if (!match) return 1;
 
 return parseInt(match[1]);
-```
+
 
 }
 
