@@ -15,6 +15,7 @@
     "body-parser": "^2.2.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "googleapis": "^173.0.0",
     "mongoose": "^9.6.3",
     "openai": "^6.39.1",
     "qrcode-terminal": "^0.12.0",
