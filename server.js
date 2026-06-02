@@ -172,15 +172,30 @@ async function sendMessage(to, text) {
 }
 
 function generateCalculation(text) {
-  const dimensions = extractDimensions(text)
-  if (!dimensions) return null
+const dimensions = extractDimensions(text)
+if (!dimensions) return null
 
-  const pieces = extractPieces(text)
-  const layers = detectLayers(text)
-  const sqft = calculateSqft(dimensions.widthMM, dimensions.heightMM, pieces, layers)
+const pieces = extractPieces(text)
+const layers = detectLayers(text)
+const thicknesses = extractThicknesses(text)
 
-  return { widthMM: dimensions.widthMM, heightMM: dimensions.heightMM, pieces, layers, sqft }
+const sqft = calculateSqft(
+dimensions.widthMM,
+dimensions.heightMM,
+pieces,
+layers
+)
+
+return {
+widthMM: dimensions.widthMM,
+heightMM: dimensions.heightMM,
+pieces,
+layers,
+thicknesses,
+sqft
 }
+}
+
 
 app.get('/webhook', (req, res) => {
   if (req.query['hub.mode'] && req.query['hub.verify_token'] === VERIFY_TOKEN) {
@@ -277,12 +292,29 @@ Width: ${calculation.widthMM} mm
 Height: ${calculation.heightMM} mm
 Pieces: ${calculation.pieces}
 Layers: ${calculation.layers}
+Thicknesses: ${calculation.thicknesses.join(' + ')}
 Total Sqft: ${calculation.sqft}
 
 IMPORTANT:
 - Sqft already includes layers and quantity
 - NEVER recalculate sqft yourself
 - ALWAYS use provided sqft
+LAMINATED GLASS RULES:
+- 5+5 means TWO separate 5mm glasses
+- 6+6 means TWO separate 6mm glasses
+- 8+8 means TWO separate 8mm glasses
+- 10+10 means TWO separate 10mm glasses
+- 12+12 means TWO separate 12mm glasses
+
+PRICING RULE:
+
+- Add each glass layer separately
+- Then add lamination charges
+- Example:
+12+12 =
+(12mm glass × 2) + lamination
+
+NEVER treat 12+12 as a single 12mm glass.
 `
   }
 

@@ -7,8 +7,7 @@ function calculateSqft(widthMM, heightMM, pieces = 1, layers = 1) {
     const sqft =
         widthFt *
         heightFt *
-        pieces *
-        layers;
+        pieces;
 
     return Number(sqft.toFixed(2));
 }
