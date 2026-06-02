@@ -12,7 +12,12 @@ app.use(express.json())
 
 const connectDB = require('./database/db')
 const { saveInquiry } = require('./services/crmService')
-const { detectLayers, extractDimensions, extractPieces } = require('./services/glassParser')
+const {
+  detectLayers,
+  extractThicknesses,
+  extractDimensions,
+  extractPieces
+} = require('./services/glassParser')
 const { calculateSqft } = require('./services/calculator')
 
 connectDB()
