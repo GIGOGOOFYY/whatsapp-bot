@@ -42,7 +42,7 @@
 
   "lamination": {
     "note": "Lamination rate",
-    "per_sqft": null
+    "per_sqft": 300
   },
 
   "bent_glass": {
