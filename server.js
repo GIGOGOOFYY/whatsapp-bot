@@ -46,6 +46,67 @@ const LEAD_STEPS = [
   { field: 'quantity',  question: 'How many *pieces* do you need?' }
 ]
 
+// ==========================
+// MEDIA HANDLER
+// ==========================
+
+async function getMediaUrl(mediaId) {
+  const res = await axios.get(
+    `https://graph.facebook.com/v23.0/${mediaId}`,
+    { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
+  )
+  return res.data.url
+}
+
+async function handleMedia(from, message) {
+  try {
+    const mediaType = message.type // image, document, video
+    const mediaObj = message[mediaType]
+    const mediaId = mediaObj.id
+    const mimeType = mediaObj.mime_type || ''
+    const caption = mediaObj.caption || ''
+
+    // Get download URL from Meta
+    const mediaUrl = await getMediaUrl(mediaId)
+
+    console.log(`[MEDIA] ${from} sent ${mediaType}: ${mediaUrl}`)
+
+    // Save to Google Sheet via crmService
+    const { addMediaAttachment } = require('./services/googleSheets')
+    try {
+      await addMediaAttachment(from, mediaType, mimeType, mediaUrl, caption)
+    } catch (e) {
+      console.log('Sheets media error:', e.message)
+    }
+
+    // If customer is in lead session, attach media to their session
+    if (leadSessions[from]) {
+      leadSessions[from].data.attachment = mediaUrl
+      await sendMessage(from, `📎 File received! I've noted it with your inquiry.\n\nLet's continue...`)
+
+      // Find next unanswered step
+      const session = leadSessions[from]
+      while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
+        session.step++
+      }
+      if (session.step < LEAD_STEPS.length) {
+        await sendMessage(from, LEAD_STEPS[session.step].question)
+      }
+      return
+    }
+
+    // Not in lead session — acknowledge and store
+    await sendMessage(from, `📎 Thank you! Your file has been received and saved.\n\nOur team will review it. For faster response:\n📞 +92-21-35042275`)
+
+    // Log to inquiries
+    try { await saveInquiry(from, `[${mediaType.toUpperCase()} ATTACHMENT] ${caption}`, `Media saved: ${mediaUrl}`) } catch (e) {}
+
+  } catch (err) {
+    console.log('Media handler error:', err.message)
+    await sendMessage(from, `Sorry, I couldn't process your file. Please try again or call +92-21-35042275`)
+  }
+}
+
 function isHotLead(text) {
   const t = text.toLowerCase()
   const infoOnly = ['information', 'info', 'what is', 'tell me', 'explain', 'how does', 'what are', 'good afternoon', 'good morning', 'good evening', 'hello', 'hi', 'assalam', 'salam']
@@ -155,6 +216,15 @@ app.post('/webhook', async (req, res) => {
     if (!message) return res.sendStatus(200)
 
     const from = message.from
+
+    // ==========================
+    // MEDIA HANDLER
+    // ==========================
+    if (['image', 'document', 'video'].includes(message.type)) {
+      await handleMedia(from, message)
+      return res.sendStatus(200)
+    }
+
     const text = message.text?.body?.trim()
     if (!text) return res.sendStatus(200)
 
@@ -203,34 +273,29 @@ app.post('/webhook', async (req, res) => {
     if (leadSessions[from]) {
       const session = leadSessions[from]
 
-      // Skip already-filled fields
       while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
         session.step++
       }
 
       if (session.step < LEAD_STEPS.length) {
-        // Save answer
         session.data[LEAD_STEPS[session.step].field] = text
         session.step++
 
-        // Skip next already-filled fields
         while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
           session.step++
         }
 
-        // More questions
         if (session.step < LEAD_STEPS.length) {
           await sendMessage(from, LEAD_STEPS[session.step].question)
           return res.sendStatus(200)
         }
       }
 
-      // All done — save lead
       const lead = { phone: from, ...session.data }
       delete leadSessions[from]
       try { await saveCustomerLead(lead) } catch (e) { console.log('Lead save error:', e.message) }
 
-      const summary = `✅ *Thank you ${lead.name}!*\n\nYour inquiry has been recorded:\n\n*Glass Type:* ${lead.glassType}\n*Size:* ${lead.size}\n*Quantity:* ${lead.quantity}\n*Location:* ${lead.city}\n\nA PSG representative will contact you shortly.\n\n_For urgent queries: +92-21-35042275_`
+      const summary = `✅ *Thank you ${lead.name}!*\n\nYour inquiry has been recorded:\n\n*Glass Type:* ${lead.glassType}\n*Size:* ${lead.size}\n*Quantity:* ${lead.quantity}\n*Location:* ${lead.city}${lead.attachment ? `\n*Attachment:* ${lead.attachment}` : ''}\n\nA PSG representative will contact you shortly.\n\n_For urgent queries: +92-21-35042275_`
       await sendMessage(from, summary)
       return res.sendStatus(200)
     }
@@ -238,12 +303,8 @@ app.post('/webhook', async (req, res) => {
     // Trigger lead wizard on hot lead
     if (isHotLead(text) && !leadSessions[from]) {
       const preData = {}
-
-      // Pre-fill size if already given
       const dims = extractDimensions(text)
       if (dims) preData.size = text
-
-      // Pre-fill quantity if already given
       const pieces = extractPieces(text)
       if (pieces > 1) preData.quantity = String(pieces)
 
