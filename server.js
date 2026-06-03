@@ -39,9 +39,22 @@ const openai = new OpenAI({
 })
 
 const conversations = {}
-
-// Track admin session state
 const adminSessions = {}
+
+// ==========================
+// LEAD SCORING
+// ==========================
+
+function scoreLead(text) {
+  const t = text.toLowerCase()
+  const hotKeywords = ['quotation', 'quote', 'price', 'buy', 'order', 'require', 'urgent', 'need', 'purchase', 'cost', 'rate', 'how much']
+  const warmKeywords = ['information', 'specification', 'catalog', 'brochure', 'specs', 'details', 'what is', 'tell me']
+  const hotCount = hotKeywords.filter(k => t.includes(k)).length
+  const warmCount = warmKeywords.filter(k => t.includes(k)).length
+  if (hotCount >= 1) return '🔴 HOT'
+  if (warmCount >= 1) return '🟡 WARM'
+  return '🔵 COLD'
+}
 
 function getRates() {
   try {
@@ -86,7 +99,6 @@ function ratesToText(rates) {
 
 function parseRateUpdate(text) {
   const t = text.toLowerCase().trim()
-
   const match = t.match(/(?:update|set)\s+(.+?)\s+(\d+(?:\.\d+)?)$/)
   if (!match) return null
 
@@ -94,7 +106,6 @@ function parseRateUpdate(text) {
   const value = parseFloat(match[2])
   const rates = getRates()
 
-  // Tempering
   if (desc.includes('temper')) {
     const mmMatch = desc.match(/(\d+)mm/)
     if (mmMatch) {
@@ -104,7 +115,6 @@ function parseRateUpdate(text) {
     }
   }
 
-  // Lamination
   if (desc.includes('laminat')) {
     rates.lamination = rates.lamination || {}
     rates.lamination.per_sqft = value
@@ -112,7 +122,6 @@ function parseRateUpdate(text) {
     return `✅ Lamination → Rs.${value} per sqft`
   }
 
-  // Polishing
   if (desc.includes('polish')) {
     rates.polishing = rates.polishing || {}
     rates.polishing.flat_polish = value
@@ -120,7 +129,6 @@ function parseRateUpdate(text) {
     return `✅ Polishing → Rs.${value} per sqft`
   }
 
-  // Beveling
   if (desc.includes('bevel')) {
     rates.beveling = rates.beveling || {}
     rates.beveling.per_sqft = value
@@ -128,7 +136,6 @@ function parseRateUpdate(text) {
     return `✅ Beveling → Rs.${value} per sqft`
   }
 
-  // Double glaze
   if (desc.includes('double') || desc.includes('dgu')) {
     rates.double_glaze = rates.double_glaze || {}
     rates.double_glaze.per_sqft = value
@@ -136,7 +143,6 @@ function parseRateUpdate(text) {
     return `✅ Double Glaze → Rs.${value} per sqft`
   }
 
-  // Glass by mm
   const mmMatch = desc.match(/(\d+)mm/)
   if (mmMatch) {
     const mm = mmMatch[1]
@@ -157,45 +163,22 @@ function parseRateUpdate(text) {
 async function sendMessage(to, text) {
   await axios.post(
     `https://graph.facebook.com/v23.0/${PHONE_NUMBER_ID}/messages`,
-    {
-      messaging_product: 'whatsapp',
-      to,
-      text: { body: text }
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${ACCESS_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    }
+    { messaging_product: 'whatsapp', to, text: { body: text } },
+    { headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
   )
 }
 
 function generateCalculation(text) {
-const dimensions = extractDimensions(text)
-if (!dimensions) return null
+  const dimensions = extractDimensions(text)
+  if (!dimensions) return null
 
-const pieces = extractPieces(text)
-const layers = detectLayers(text)
-const thicknesses = extractThicknesses(text)
+  const pieces = extractPieces(text)
+  const layers = detectLayers(text)
+  const thicknesses = extractThicknesses(text)
+  const sqft = calculateSqft(dimensions.widthMM, dimensions.heightMM, pieces, layers)
 
-const sqft = calculateSqft(
-dimensions.widthMM,
-dimensions.heightMM,
-pieces,
-layers
-)
-
-return {
-widthMM: dimensions.widthMM,
-heightMM: dimensions.heightMM,
-pieces,
-layers,
-thicknesses,
-sqft
+  return { widthMM: dimensions.widthMM, heightMM: dimensions.heightMM, pieces, layers, thicknesses, sqft }
 }
-}
-
 
 app.get('/webhook', (req, res) => {
   if (req.query['hub.mode'] && req.query['hub.verify_token'] === VERIFY_TOKEN) {
@@ -222,28 +205,24 @@ app.post('/webhook', async (req, res) => {
     if (from === ADMIN_NUMBER) {
       const lower = text.toLowerCase()
 
-      // Enter admin mode
       if (lower === 'admin' || lower === 'show rates' || lower === 'rates') {
         adminSessions[from] = true
         await sendMessage(from, ratesToText(getRates()))
         return res.sendStatus(200)
       }
 
-      // Update command (works in or out of admin mode)
       if (lower.startsWith('update ') || lower.startsWith('set ')) {
         const result = parseRateUpdate(text)
         await sendMessage(from, result || `❌ Format not recognised.\n\nExamples:\nupdate lamination 350\nupdate 6mm 80\nupdate 6mm tempering 400`)
         return res.sendStatus(200)
       }
 
-      // Exit admin mode
       if (lower === 'exit' || lower === 'done' || lower === 'quit') {
         adminSessions[from] = false
         await sendMessage(from, '✅ Exited admin mode.')
         return res.sendStatus(200)
       }
 
-      // If in admin session, don't process as customer
       if (adminSessions[from]) {
         await sendMessage(from, `_Admin mode active._\n\nSend rates update or type "exit" to leave.\n\n${ratesToText(getRates())}`)
         return res.sendStatus(200)
@@ -251,11 +230,22 @@ app.post('/webhook', async (req, res) => {
     }
 
     // ==========================
+    // HUMAN HANDOVER
+    // ==========================
+
+    const handoverKeywords = ['talk to sales', 'need representative', 'call me', 'speak to someone', 'human', 'agent', 'sales team', 'representative']
+    if (handoverKeywords.some(k => text.toLowerCase().includes(k))) {
+      const reply = `A PSG representative will contact you shortly. 📞\n\nPlease share your details:\n\n*Name:*\n*Company:*\n*City:*\n*Best time to call:*`
+      await sendMessage(from, reply)
+      try { await saveInquiry(from, text, 'HANDOVER REQUEST: ' + text) } catch (e) {}
+      return res.sendStatus(200)
+    }
+
+    // ==========================
     // CUSTOMER FLOW
     // ==========================
 
     if (!conversations[from]) conversations[from] = []
-
     conversations[from].push({ role: 'user', content: text })
     conversations[from] = conversations[from].slice(-10)
 
@@ -264,6 +254,10 @@ app.post('/webhook', async (req, res) => {
     conversations[from].push({ role: 'assistant', content: aiReply })
 
     await sendMessage(from, aiReply)
+
+    // Lead score log
+    const score = scoreLead(text)
+    console.log(`Lead [${from}]: ${score} | "${text}"`)
 
     try {
       await saveInquiry(from, text, aiReply)
@@ -299,6 +293,7 @@ IMPORTANT:
 - Sqft already includes layers and quantity
 - NEVER recalculate sqft yourself
 - ALWAYS use provided sqft
+
 LAMINATED GLASS RULES:
 - 5+5 means TWO separate 5mm glasses
 - 6+6 means TWO separate 6mm glasses
@@ -307,14 +302,10 @@ LAMINATED GLASS RULES:
 - 12+12 means TWO separate 12mm glasses
 
 PRICING RULE:
-
 - Add each glass layer separately
 - Then add lamination charges
-- Example:
-12+12 =
-(12mm glass × 2) + lamination
-
-NEVER treat 12+12 as a single 12mm glass.
+- Example: 12+12 = (12mm glass × 2) + lamination
+- NEVER treat 12+12 as a single 12mm glass.
 `
   }
 
@@ -353,11 +344,30 @@ ${ratesText}
 
 ${calculationText}
 
+TECHNICAL KNOWLEDGE:
+Bullet Resistant Glass:
+- BR4: ${kb.technicalSpecs.bulletResistant.BR4}
+- BR6: ${kb.technicalSpecs.bulletResistant.BR6}
+- BR7: ${kb.technicalSpecs.bulletResistant.BR7}
+- Curved BR: ${kb.technicalSpecs.bulletResistant.curved}
+
+Glass Thickness Guide:
+${Object.entries(kb.technicalSpecs.thicknessGuide).map(([k, v]) => `${k}: ${v}`).join('\n')}
+
+Fire Rated Glass:
+${Object.entries(kb.technicalSpecs.fireRated).map(([k, v]) => `${k}: ${v}`).join('\n')}
+
+WHY PSG:
+${kb.competitors.whyPSG}
+
 RULES:
 - Keep replies short and professional
 - Use *bold* for prices and totals
 - If rate is TBD, say: "Rate not set yet, please call +92-21-35042275"
 - End quotations with: "_Estimated quote. Final price confirmed at order._"
+- For technical questions, give confident expert answers
+- For "why PSG" or "why choose you" questions, use WHY PSG section
+- Never attack competitors by name
 `
     },
     ...conversations[userId]
