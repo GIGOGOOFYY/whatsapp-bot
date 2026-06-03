@@ -198,5 +198,38 @@ PSG is committed to innovation, quality, and safety — setting the benchmark fo
       q: "What are PSG's working hours?",
       a: "PSG operates Monday to Saturday. For exact office hours, please call +92-21-35042275 or +92-308-2909634."
     }
-  ]
+  ],
+
+  competitors: {
+    whyPSG: `PSG advantages over competitors:
+- Established 1969 — 55+ years experience
+- Only Pakistani manufacturer of curved bullet-resistant glass
+- In-house tempering, lamination, and DGU production
+- Custom engineering for non-standard sizes
+- Faster local delivery vs imported glass
+- Technical support from experienced engineers
+- 3rd generation family business — long-term reliability`
+  },
+
+  technicalSpecs: {
+    bulletResistant: {
+      BR4: "Protects against handgun fire. Typical construction: 20-25mm laminated. Used in: cash counters, jewelry shops.",
+      BR6: "Protects against high-power rifles. Typical construction: 35-42mm laminated. Used in: banks, embassies, government buildings.",
+      BR7: "Military grade. Protects against assault rifles. Typical construction: 45-70mm. Used in: armored vehicles, military installations.",
+      curved: "PSG is one of very few manufacturers globally capable of curved bullet-resistant glass. Suitable for curved facades and armored vehicles."
+    },
+    thicknessGuide: {
+      "4mm": "Interior partitions, furniture, picture frames",
+      "6mm": "Standard doors, windows, shower enclosures",
+      "8mm": "Heavy doors, railings, structural applications",
+      "10mm": "Frameless doors, floors, high-load applications",
+      "12mm": "Structural glass, floors, heavy-duty applications"
+    },
+    fireRated: {
+      EW30: "30 min radiation control",
+      EW60: "60 min radiation control",
+      EI30: "30 min full integrity + insulation",
+      EI60: "60 min full integrity + insulation"
+    }
+  }
 }
