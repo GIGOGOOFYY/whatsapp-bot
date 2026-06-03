@@ -6,6 +6,7 @@ const auth = new google.auth.GoogleAuth({
 })
 
 const sheets = google.sheets({ version: 'v4', auth })
+
 const SPREADSHEET_ID = '1z4DpE0fL9633pmAftsmR9OTPPhngX3oQIKtlsLED4k8'
 
 async function addInquiry(phone, message, reply) {
@@ -13,7 +14,14 @@ async function addInquiry(phone, message, reply) {
     spreadsheetId: SPREADSHEET_ID,
     range: 'Inquiries!A:D',
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [[phone, message, reply, new Date().toLocaleString()]] }
+    requestBody: {
+      values: [[
+        phone,
+        message,
+        reply,
+        new Date().toLocaleString()
+      ]]
+    }
   })
 }
 
@@ -37,4 +45,26 @@ async function addCustomerLead(lead) {
   })
 }
 
-module.exports = { addInquiry, addCustomerLead }
+async function addMediaAttachment(phone, mediaType, mimeType, url, caption) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Inquiries!A:F',
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[
+        phone,
+        `[${mediaType.toUpperCase()}]`,
+        caption || '(no caption)',
+        `=HYPERLINK("${url}","View File")`,
+        mimeType,
+        new Date().toLocaleString()
+      ]]
+    }
+  })
+}
+
+module.exports = {
+  addInquiry,
+  addCustomerLead,
+  addMediaAttachment
+}
