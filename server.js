@@ -35,26 +35,23 @@ const openai = new OpenAI({
 
 const conversations = {}
 const adminSessions = {}
-
-// ==========================
-// LEAD COLLECTION STATE
-// fields: name, company, city, glassType, size, quantity
-// ==========================
 const leadSessions = {}
 
 const LEAD_STEPS = [
   { field: 'name',      question: 'May I have your *name*?' },
-  { field: 'company',   question: 'Your *company* or organization name?' },
+  { field: 'company',   question: 'Your *company* or organization name? (type "none" if individual)' },
   { field: 'city',      question: 'Your *city / project location*?' },
-  { field: 'glassType', question: 'What *type of glass* do you need? (e.g. Tempered, Laminated, BR6)' },
-  { field: 'size',      question: 'What *size* do you require? (width x height in mm or ft)' },
+  { field: 'glassType', question: 'What *type of glass* do you need?\n\n1. Tempered Glass\n2. Laminated Glass\n3. Bullet Resistant Glass\n4. Double Glazed Glass (DGU)\n5. Other (please specify)' },
+  { field: 'size',      question: 'What *size* do you require? (e.g. 4x8ft, 1200x2400mm)' },
   { field: 'quantity',  question: 'How many *pieces* do you need?' }
 ]
 
 function isHotLead(text) {
   const t = text.toLowerCase()
-  const keywords = ['quotation', 'quote', 'price', 'buy', 'order', 'require', 'urgent', 'need', 'purchase', 'cost', 'rate', 'how much', 'i want', 'i need']
-  return keywords.some(k => t.includes(k))
+  const infoOnly = ['information', 'info', 'what is', 'tell me', 'explain', 'how does', 'what are', 'good afternoon', 'good morning', 'good evening', 'hello', 'hi', 'assalam', 'salam']
+  if (infoOnly.some(k => t.includes(k))) return false
+  const buyKeywords = ['quotation', 'quote', 'buy', 'order', 'purchase', 'i need', 'i want', 'i require', 'send me price', 'give me price', 'price of', 'cost of', 'rate of', 'chahiye', 'required']
+  return buyKeywords.some(k => t.includes(k))
 }
 
 function scoreLead(text) {
@@ -205,23 +202,32 @@ app.post('/webhook', async (req, res) => {
     // ==========================
     if (leadSessions[from]) {
       const session = leadSessions[from]
-      const currentStep = LEAD_STEPS[session.step]
 
-      // Save answer to current step
-      session.data[currentStep.field] = text
-      session.step++
-
-      // More steps remaining
-      if (session.step < LEAD_STEPS.length) {
-        const nextStep = LEAD_STEPS[session.step]
-        await sendMessage(from, nextStep.question)
-        return res.sendStatus(200)
+      // Skip already-filled fields
+      while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
+        session.step++
       }
 
-      // All steps done — save lead
+      if (session.step < LEAD_STEPS.length) {
+        // Save answer
+        session.data[LEAD_STEPS[session.step].field] = text
+        session.step++
+
+        // Skip next already-filled fields
+        while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
+          session.step++
+        }
+
+        // More questions
+        if (session.step < LEAD_STEPS.length) {
+          await sendMessage(from, LEAD_STEPS[session.step].question)
+          return res.sendStatus(200)
+        }
+      }
+
+      // All done — save lead
       const lead = { phone: from, ...session.data }
       delete leadSessions[from]
-
       try { await saveCustomerLead(lead) } catch (e) { console.log('Lead save error:', e.message) }
 
       const summary = `✅ *Thank you ${lead.name}!*\n\nYour inquiry has been recorded:\n\n*Glass Type:* ${lead.glassType}\n*Size:* ${lead.size}\n*Quantity:* ${lead.quantity}\n*Location:* ${lead.city}\n\nA PSG representative will contact you shortly.\n\n_For urgent queries: +92-21-35042275_`
@@ -229,11 +235,19 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200)
     }
 
-    // Trigger lead wizard on hot lead (first time)
+    // Trigger lead wizard on hot lead
     if (isHotLead(text) && !leadSessions[from]) {
-      leadSessions[from] = { step: 0, data: { glassType: text } }
-      // Pre-fill glassType from their message, skip to name
-      leadSessions[from].step = 0
+      const preData = {}
+
+      // Pre-fill size if already given
+      const dims = extractDimensions(text)
+      if (dims) preData.size = text
+
+      // Pre-fill quantity if already given
+      const pieces = extractPieces(text)
+      if (pieces > 1) preData.quantity = String(pieces)
+
+      leadSessions[from] = { step: 0, data: preData }
       await sendMessage(from, `Great! I'd love to help you with a quotation. 😊\n\nMay I have your *name*?`)
       return res.sendStatus(200)
     }
