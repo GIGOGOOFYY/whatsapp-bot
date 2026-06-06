@@ -20,8 +20,9 @@ connectDB()
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'mytoken123'
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN || ''
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY || ''
-const PHONE_NUMBER_ID = '1164548600079324'
-const ADMIN_NUMBER = '923000306648'
+// FIX #4: moved from hardcoded to .env
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID
+const ADMIN_NUMBER = process.env.ADMIN_NUMBER
 const RATES_FILE = path.join(__dirname, 'Rates.json')
 
 const openai = new OpenAI({
@@ -33,26 +34,83 @@ const openai = new OpenAI({
   }
 })
 
+
+
 const conversations = {}
 const adminSessions = {}
 const leadSessions = {}
 
-const LEAD_STEPS = [
+// FIX #1: dynamic lead steps — aluminum window gets 2 extra steps
+const BASE_LEAD_STEPS = [
   { field: 'name',      question: 'May I have your *name*?' },
   { field: 'company',   question: 'Your *company* or organization name? (type "none" if individual)' },
   { field: 'city',      question: 'Your *city / project location*?' },
-  { field: 'glassType', question: 'What *type of glass* do you need?\n\n1. Tempered Glass\n2. Laminated Glass\n3. Bullet Resistant Glass\n4. Double Glazed Glass (DGU)\n5. Other (please specify)' },
+  { field: 'glassType', question: 'What *type of glass / product* do you need?\n\n1. Tempered Glass\n2. Laminated Glass\n3. Bullet Resistant Glass\n4. Double Glazed Glass (DGU)\n5. Aluminum Window/Door\n6. Other (please specify)' },
   { field: 'size',      question: 'What *size* do you require? (e.g. 4x8ft, 1200x2400mm)' },
   { field: 'quantity',  question: 'How many *pieces* do you need?' }
 ]
 
-// ==========================
-// CANCEL KEYWORDS
-// ==========================
+const ALUMINUM_EXTRA_STEPS = [
+  {
+    field: 'thermalBreak',
+    question: 'Do you need *Thermal Break* or *Standard (Non-Thermal Break)* aluminum?\n\n1. Thermal Break (energy-efficient, recommended for AC spaces)\n2. Standard / Non-Thermal Break (cost-effective)'
+  },
+  {
+    field: 'windowType',
+    question: 'What *type* of window/door do you need?\n\n1. Casement (hinged, opens in/out)\n2. Sliding\n3. Folding / Bi-fold\n4. Tilt & Turn\n5. Awning (top-hinged)\n6. Fixed (non-opening)\n7. Not sure'
+  }
+]
+
+function getLeadSteps(session) {
+  const glassType = (session.data.glassType || '').toLowerCase()
+  const isAluminum = glassType.includes('5') || glassType.includes('aluminum') || glassType.includes('window') || glassType.includes('door')
+  if (isAluminum) {
+    // Insert aluminum steps after glassType (index 3), before size
+    const steps = [...BASE_LEAD_STEPS]
+    steps.splice(4, 0, ...ALUMINUM_EXTRA_STEPS)
+    return steps
+  }
+  return BASE_LEAD_STEPS
+}
+
 const CANCEL_KEYWORDS = ['cancel', 'exit', 'stop', 'quit', 'nevermind', 'forget it', 'abort']
 
 // ==========================
-// MEDIA HANDLER (unchanged)
+// OCR via OpenRouter vision (reuses existing OPENROUTER_KEY)
+// ==========================
+async function ocrImageFromBuffer(buffer, mimeType) {
+  try {
+    const base64 = buffer.toString('base64')
+    const imgMime = mimeType.includes('png') ? 'image/png' : 'image/jpeg'
+    const dataUrl = `data:${imgMime};base64,${base64}`
+
+    const res = await openai.chat.completions.create({
+      model: 'google/gemini-flash-1.5',
+      max_tokens: 1000,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: dataUrl } },
+            {
+              type: 'text',
+              text: 'This is a glass order list. Extract all dimensions (width x height in mm or ft) and quantities. Return as a clean list like:\n1933 x 595 = 10 pcs\n1728 x 595 = 20 pcs\netc.\nIf the image is unclear or you cannot read the text, reply with exactly: UNCLEAR'
+            }
+          ]
+        }
+      ]
+    })
+
+    const result = res.choices?.[0]?.message?.content || 'UNCLEAR'
+    return result.trim()
+  } catch (err) {
+    console.log('[OCR] Error:', err.message)
+    return 'UNCLEAR'
+  }
+}
+
+// ==========================
+// MEDIA HANDLER
 // ==========================
 async function downloadMediaBuffer(mediaUrl) {
   const res = await axios.get(mediaUrl, {
@@ -81,18 +139,21 @@ async function handleMedia(from, message) {
     const tempUrl = await getMediaUrl(mediaId)
     console.log(`[MEDIA] ${from} sent ${mediaType}: ${tempUrl}`)
 
-    let permanentUrl = tempUrl
+    // Download buffer
+    let buffer = null
+    let permanentUrl = `[media_id:${mediaId}]`
+    let localFilename = ''
+
     try {
-      const buffer = await downloadMediaBuffer(tempUrl)
+      buffer = await downloadMediaBuffer(tempUrl)
       const ext = mimeType.includes('pdf') ? 'pdf' : mimeType.includes('png') ? 'png' : 'jpg'
-      const filename = `psg_${from}_${Date.now()}.${ext}`
+      localFilename = `psg_${from}_${Date.now()}.${ext}`
 
       if (process.env.CLOUDINARY_URL) {
-        const FormData = require('form-data')
         const cloudinary = require('cloudinary').v2
         const uploadResult = await new Promise((resolve, reject) => {
           const uploadStream = cloudinary.uploader.upload_stream(
-            { folder: 'psg_inquiries', public_id: filename },
+            { folder: 'psg_inquiries', public_id: localFilename },
             (err, result) => err ? reject(err) : resolve(result)
           )
           uploadStream.end(buffer)
@@ -100,17 +161,18 @@ async function handleMedia(from, message) {
         permanentUrl = uploadResult.secure_url
         console.log(`[MEDIA] Uploaded to Cloudinary: ${permanentUrl}`)
       } else {
-        const localPath = path.join(__dirname, 'uploads', filename)
-        require('fs').mkdirSync(path.join(__dirname, 'uploads'), { recursive: true })
-        require('fs').writeFileSync(localPath, buffer)
-        permanentUrl = `[local:${filename}]`
-        console.log(`[MEDIA] Saved locally: ${localPath}`)
+        // FIX #3a: save locally, store just the filename — no broken HYPERLINK formula
+        const uploadsDir = path.join(__dirname, 'uploads')
+        fs.mkdirSync(uploadsDir, { recursive: true })
+        fs.writeFileSync(path.join(uploadsDir, localFilename), buffer)
+        permanentUrl = localFilename  // just filename, not [local:...] wrapper
+        console.log(`[MEDIA] Saved locally: ${localFilename}`)
       }
     } catch (dlErr) {
       console.log('[MEDIA] Download/upload failed:', dlErr.message)
-      permanentUrl = `[media_id:${mediaId}]`
     }
 
+    // FIX #3b: save to sheets with plain text URL, not HYPERLINK formula
     const { addMediaAttachment } = require('./services/googleSheets')
     try {
       await addMediaAttachment(from, mediaType, mimeType, permanentUrl, caption)
@@ -118,30 +180,49 @@ async function handleMedia(from, message) {
       console.log('Sheets media error:', e.message)
     }
 
+    // FIX #3b: OCR for images/pdfs
+    let ocrText = null
+    if (buffer && (mediaType === 'image' || mimeType.includes('pdf'))) {
+      await sendMessage(from, `📎 File received! Analysing your size list... 🔍`)
+      ocrText = await ocrImageFromBuffer(buffer, mimeType)
+      console.log(`[OCR] Result: ${ocrText}`)
+    }
+
     if (leadSessions[from]) {
-      leadSessions[from].data.attachment = permanentUrl
       const session = leadSessions[from]
-      if (!session.data.size) session.data.size = '[see attached image]'
-      if (!session.data.quantity) session.data.quantity = '[see attached image]'
+      session.data.attachment = permanentUrl
 
-      await sendMessage(from, `📎 Image received! I've noted the sizes from your attachment.\n\nLet's continue...`)
+      if (ocrText && ocrText !== 'UNCLEAR') {
+        session.data.size = ocrText
+        session.data.quantity = '[see size list above]'
+        await sendMessage(from, `✅ *Sizes extracted from your image:*\n\n${ocrText}\n\nI've noted these for your quotation.`)
+      } else if (ocrText === 'UNCLEAR') {
+        await sendMessage(from, `⚠️ I couldn't read the sizes clearly from your image. Please type the sizes manually, or contact our team directly:\n📞 +92-21-35042275`)
+      } else {
+        await sendMessage(from, `📎 File received and saved for our team to review.`)
+      }
 
-      while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
+      const steps = getLeadSteps(session)
+      while (session.step < steps.length && session.data[steps[session.step].field]) {
         session.step++
       }
-      if (session.step < LEAD_STEPS.length) {
-        await sendMessage(from, LEAD_STEPS[session.step].question)
+      if (session.step < steps.length) {
+        await sendMessage(from, steps[session.step].question)
       } else {
-        const lead = { phone: from, ...session.data }
-        delete leadSessions[from]
-        try { await saveCustomerLead(lead) } catch (e) { console.log('Lead save error:', e.message) }
-        const summary = `✅ *Thank you ${lead.name}!*\n\nYour inquiry has been recorded:\n\n*Glass Type:* ${lead.glassType}\n*Size:* ${lead.size}\n*Quantity:* ${lead.quantity}\n*Location:* ${lead.city}${lead.attachment ? `\n*Attachment:* ${lead.attachment}` : ''}\n\nA PSG representative will contact you shortly.\n\n_For urgent queries: +92-21-35042275_`
-        await sendMessage(from, summary)
+        await completeLead(from, session)
       }
       return
     }
 
-    await sendMessage(from, `📎 Thank you! Your file has been received and saved.\n\nOur team will review it. For faster response:\n📞 +92-21-35042275`)
+    // Not in lead session
+    if (ocrText && ocrText !== 'UNCLEAR') {
+      await sendMessage(from, `✅ *Sizes extracted from your image:*\n\n${ocrText}\n\nWould you like a quotation for these? Our team will be in touch.\n📞 +92-21-35042275`)
+    } else if (ocrText === 'UNCLEAR') {
+      await sendMessage(from, `⚠️ Your image was received but I couldn't read it clearly. Please share a clearer photo or contact us:\n📞 +92-21-35042275`)
+    } else {
+      await sendMessage(from, `📎 Thank you! Your file has been received.\n\nOur team will review it. For faster response:\n📞 +92-21-35042275`)
+    }
+
     try { await saveInquiry(from, `[${mediaType.toUpperCase()} ATTACHMENT] ${caption}`, `Media saved: ${permanentUrl}`) } catch (e) {}
 
   } catch (err) {
@@ -150,13 +231,19 @@ async function handleMedia(from, message) {
   }
 }
 
+async function completeLead(from, session) {
+  const lead = { phone: from, ...session.data }
+  delete leadSessions[from]
+  try { await saveCustomerLead(lead) } catch (e) { console.log('Lead save error:', e.message) }
+
+  const windowDetails = lead.thermalBreak ? `\n*Window Type:* ${lead.thermalBreak}\n*Style:* ${lead.windowType}` : ''
+  const summary = `✅ *Thank you ${lead.name}!*\n\nYour inquiry has been recorded:\n\n*Glass Type:* ${lead.glassType}${windowDetails}\n*Size:* ${lead.size}\n*Quantity:* ${lead.quantity}\n*Location:* ${lead.city}${lead.attachment ? `\n*Attachment:* ✅ received` : ''}\n\nA PSG representative will contact you shortly.\n\n_For urgent queries: +92-21-35042275_`
+  await sendMessage(from, summary)
+}
+
 function isRateRequest(text) {
   const t = text.toLowerCase()
-  const rateOnlyPhrases = [
-    'i need rates', 'show rates', 'rate list', 'price list',
-    'current rates', 'tell me rates', 'what are the rates',
-    'rates please', 'send rates', 'rates only'
-  ]
+  const rateOnlyPhrases = ['i need rates', 'show rates', 'rate list', 'price list', 'current rates', 'tell me rates', 'what are the rates', 'rates please', 'send rates', 'rates only']
   return rateOnlyPhrases.some(phrase => t.includes(phrase))
 }
 
@@ -183,7 +270,8 @@ function detectGlassType(text) {
   if (t.includes('bullet') || t.includes('br4') || t.includes('br6') || t.includes('br7')) return '3'
   if (t.includes('laminated') || t.includes('laminate') || t.includes('pvb')) return '2'
   if (t.includes('dgu') || t.includes('double glaz') || t.includes('insulated') || t.includes('double glazed')) return '4'
-  if (t.includes('tempered') || t.includes('toughened') || t.includes('tglass') || t.includes('t glass')) return '1'
+  if (t.includes('aluminum') || t.includes('aluminium') || t.includes('window') || t.includes('door')) return '5'
+  if (t.includes('tempered') || t.includes('toughened')) return '1'
   if (/\d+mm/i.test(t)) return '1'
   return null
 }
@@ -281,9 +369,6 @@ app.post('/webhook', async (req, res) => {
 
     const from = message.from
 
-    // ==========================
-    // MEDIA HANDLER
-    // ==========================
     if (['image', 'document', 'video'].includes(message.type)) {
       await handleMedia(from, message)
       return res.sendStatus(200)
@@ -294,19 +379,15 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`[${from}]: ${text}`)
 
-    // ==========================
-    // GLOBAL CANCEL (exits any session)
-    // ==========================
+    // Global cancel
     if (CANCEL_KEYWORDS.includes(text.toLowerCase().trim())) {
       if (leadSessions[from]) delete leadSessions[from]
       if (adminSessions[from]) delete adminSessions[from]
-      await sendMessage(from, `✅ Cancelled current operation. How can I help you?`)
+      await sendMessage(from, `✅ Cancelled. How can I help you?`)
       return res.sendStatus(200)
     }
 
-    // ==========================
-    // ADMIN HANDLING
-    // ==========================
+    // Admin handling
     if (from === ADMIN_NUMBER) {
       const lower = text.toLowerCase()
       if (lower === 'admin' || lower === 'show rates' || lower === 'rates') {
@@ -330,17 +411,13 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
-    // ==========================
-    // RATE REQUEST HANDLER
-    // ==========================
+    // Rate request
     if (isRateRequest(text)) {
       await sendMessage(from, ratesToText(getRates()))
       return res.sendStatus(200)
     }
 
-    // ==========================
-    // HUMAN HANDOVER
-    // ==========================
+    // Human handover
     const handoverKeywords = ['talk to sales', 'need representative', 'call me', 'speak to someone', 'human', 'agent', 'sales team', 'representative']
     if (handoverKeywords.some(k => text.toLowerCase().includes(k))) {
       const reply = `A PSG representative will contact you shortly. 📞\n\nPlease share your details:\n\n*Name:*\n*Company:*\n*City:*\n*Best time to call:*`
@@ -349,47 +426,43 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200)
     }
 
-    // ==========================
-    // LEAD COLLECTION WIZARD (with cancel support)
-    // ==========================
+    // FIX #1: Lead wizard with dynamic steps
     if (leadSessions[from]) {
       const session = leadSessions[from]
 
-      // Cancel inside wizard
       if (CANCEL_KEYWORDS.includes(text.toLowerCase().trim())) {
         delete leadSessions[from]
-        await sendMessage(from, `❌ Quotation cancelled. You can start again by typing "quote" or "rates". How else can I help?`)
+        await sendMessage(from, `❌ Quotation cancelled. Type "quote" to start again. How else can I help?`)
         return res.sendStatus(200)
       }
 
-      while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
+      const steps = getLeadSteps(session)
+
+      while (session.step < steps.length && session.data[steps[session.step].field]) {
         session.step++
       }
 
-      if (session.step < LEAD_STEPS.length) {
-        session.data[LEAD_STEPS[session.step].field] = text
+      if (session.step < steps.length) {
+        session.data[steps[session.step].field] = text
         session.step++
 
-        while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
+        // Re-evaluate steps now that glassType may have been set
+        const updatedSteps = getLeadSteps(session)
+        while (session.step < updatedSteps.length && session.data[updatedSteps[session.step].field]) {
           session.step++
         }
 
-        if (session.step < LEAD_STEPS.length) {
-          await sendMessage(from, LEAD_STEPS[session.step].question)
+        if (session.step < updatedSteps.length) {
+          await sendMessage(from, updatedSteps[session.step].question)
           return res.sendStatus(200)
         }
       }
 
-      const lead = { phone: from, ...session.data }
-      delete leadSessions[from]
-      try { await saveCustomerLead(lead) } catch (e) { console.log('Lead save error:', e.message) }
-
-      const summary = `✅ *Thank you ${lead.name}!*\n\nYour inquiry has been recorded:\n\n*Glass Type:* ${lead.glassType}\n*Size:* ${lead.size}\n*Quantity:* ${lead.quantity}\n*Location:* ${lead.city}${lead.attachment ? `\n*Attachment:* ${lead.attachment}` : ''}\n\nA PSG representative will contact you shortly.\n\n_For urgent queries: +92-21-35042275_`
-      await sendMessage(from, summary)
+      await completeLead(from, session)
       return res.sendStatus(200)
     }
 
-    // Trigger lead wizard on hot lead (genuine purchase interest)
+    // Trigger lead wizard
     if (isHotLead(text) && !leadSessions[from]) {
       const preData = {}
       const glassType = detectGlassType(text)
@@ -400,13 +473,11 @@ app.post('/webhook', async (req, res) => {
       if (pieces > 1) preData.quantity = String(pieces)
 
       leadSessions[from] = { step: 0, data: preData }
-      await sendMessage(from, `Great! I'd love to help you with a quotation. 😊\n\nMay I have your *name*? (Type "cancel" to stop)`)
+      await sendMessage(from, `Great! I'd love to help you with a quotation. 😊\n\nMay I have your *name*? (Type "cancel" anytime to stop)`)
       return res.sendStatus(200)
     }
 
-    // ==========================
-    // CUSTOMER FLOW (AI)
-    // ==========================
+    // AI flow
     if (!conversations[from]) conversations[from] = []
     conversations[from].push({ role: 'user', content: text })
     conversations[from] = conversations[from].slice(-10)
@@ -431,7 +502,6 @@ app.post('/webhook', async (req, res) => {
 })
 
 async function askAI(userId, userMessage) {
-  // ... (unchanged - your existing askAI function)
   const r = getRates()
   const calculation = generateCalculation(userMessage)
 
@@ -501,6 +571,20 @@ ${ratesText}
 
 ${calculationText}
 
+DGU / DOUBLE GLAZE NOTATION RULE — CRITICAL:
+When a customer says "Low-E + 12 + 6mm" or "6 + 12 + 6" or similar three-part DGU specs:
+- Format is: [glass1] + [spacer gap mm] + [glass2]
+- The MIDDLE number is the AIR/ARGON SPACER GAP — it is NOT a glass thickness
+- Example: "Low-E + 12 + 6mm" = Low-E glass pane + 12mm spacer gap + 6mm clear glass
+- Example: "6 + 12 + 6" = 6mm glass + 12mm air gap + 6mm glass (standard DGU)
+- NEVER treat the middle spacer number as a glass layer for pricing
+- Price only the two glass panes, then add DGU/double glaze rate for the unit
+
+ALUMINUM WINDOW RULES:
+- Always ask if Thermal Break or Standard (Non-Thermal Break) before quoting
+- Always ask window/door type: Casement, Sliding, Folding, Tilt & Turn, Awning, or Fixed
+- Aluminum window rates vary by type and thermal spec — if rate is TBD, ask customer to call
+
 TECHNICAL KNOWLEDGE:
 Bullet Resistant Glass:
 - BR4: ${kb.technicalSpecs.bulletResistant.BR4}
@@ -513,15 +597,6 @@ ${Object.entries(kb.technicalSpecs.thicknessGuide).map(([k, v]) => `${k}: ${v}`)
 
 Fire Rated Glass:
 ${Object.entries(kb.technicalSpecs.fireRated).map(([k, v]) => `${k}: ${v}`).join('\n')}
-
-Automotive Glass:
-- OEM Partners: ${kb.technicalSpecs.automotive.oemPartners.join('; ')}
-- Local bus body fabricators: ${kb.technicalSpecs.automotive.localBodyBuilders}
-- Windshield: ${kb.technicalSpecs.automotive.glassTypes.windshield}
-- Side windows: ${kb.technicalSpecs.automotive.glassTypes.sideWindows}
-- Rear window: ${kb.technicalSpecs.automotive.glassTypes.rearWindow}
-- Armored vehicle: ${kb.technicalSpecs.automotive.glassTypes.armoredVehicle}
-- Customization: ${kb.technicalSpecs.automotive.customization}
 
 WHY PSG:
 ${kb.competitors.whyPSG}

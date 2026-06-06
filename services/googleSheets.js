@@ -7,7 +7,8 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: 'v4', auth })
 
-const SPREADSHEET_ID = '1z4DpE0fL9633pmAftsmR9OTPPhngX3oQIKtlsLED4k8'
+// FIX #4: moved from hardcoded to .env
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID
 
 async function addInquiry(phone, message, reply) {
   await sheets.spreadsheets.values.append({
@@ -28,7 +29,7 @@ async function addInquiry(phone, message, reply) {
 async function addCustomerLead(lead) {
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'Customers!A:H',
+    range: 'Customers!A:I',
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [[
@@ -37,6 +38,8 @@ async function addCustomerLead(lead) {
         lead.company,
         lead.city,
         lead.glassType,
+        lead.thermalBreak || '',
+        lead.windowType || '',
         lead.size,
         lead.quantity,
         new Date().toLocaleString()
@@ -46,6 +49,9 @@ async function addCustomerLead(lead) {
 }
 
 async function addMediaAttachment(phone, mediaType, mimeType, url, caption) {
+  // FIX #3a: store plain URL text — no =HYPERLINK() formula that breaks for local files
+  const displayUrl = url.startsWith('http') ? url : `[local file: ${url}]`
+
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
     range: 'Inquiries!A:F',
@@ -55,7 +61,7 @@ async function addMediaAttachment(phone, mediaType, mimeType, url, caption) {
         phone,
         `[${mediaType.toUpperCase()}]`,
         caption || '(no caption)',
-        `=HYPERLINK("${url}","View File")`,
+        displayUrl,          // plain text, not =HYPERLINK(...)
         mimeType,
         new Date().toLocaleString()
       ]]
