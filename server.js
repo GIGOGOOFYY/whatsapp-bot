@@ -20,8 +20,8 @@ connectDB()
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'mytoken123'
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN || ''
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY || ''
-const PHONE_NUMBER_ID = '1164548600079324'
-const ADMIN_NUMBER = '923000306648'
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || ''
+const ADMIN_NUMBER = process.env.ADMIN_PHONE || '923000306648'
 const RATES_FILE = path.join(__dirname, 'Rates.json')
 
 const openai = new OpenAI({
@@ -50,6 +50,14 @@ const LEAD_STEPS = [
 // MEDIA HANDLER
 // ==========================
 
+async function downloadMediaBuffer(mediaUrl) {
+  const res = await axios.get(mediaUrl, {
+    headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
+    responseType: 'arraybuffer'
+  })
+  return Buffer.from(res.data)
+}
+
 async function getMediaUrl(mediaId) {
   const res = await axios.get(
     `https://graph.facebook.com/v23.0/${mediaId}`,
@@ -60,46 +68,88 @@ async function getMediaUrl(mediaId) {
 
 async function handleMedia(from, message) {
   try {
-    const mediaType = message.type // image, document, video
+    const mediaType = message.type
     const mediaObj = message[mediaType]
     const mediaId = mediaObj.id
     const mimeType = mediaObj.mime_type || ''
     const caption = mediaObj.caption || ''
 
-    // Get download URL from Meta
-    const mediaUrl = await getMediaUrl(mediaId)
+    // Step 1: get the short-lived Meta URL
+    const tempUrl = await getMediaUrl(mediaId)
+    console.log(`[MEDIA] ${from} sent ${mediaType}: ${tempUrl}`)
 
-    console.log(`[MEDIA] ${from} sent ${mediaType}: ${mediaUrl}`)
+    // Step 2: download binary using Bearer token (fixes 401 issue)
+    let permanentUrl = tempUrl // fallback
+    try {
+      const buffer = await downloadMediaBuffer(tempUrl)
+      const ext = mimeType.includes('pdf') ? 'pdf' : mimeType.includes('png') ? 'png' : 'jpg'
+      const filename = `psg_${from}_${Date.now()}.${ext}`
 
-    // Save to Google Sheet via crmService
+      // Upload to Cloudinary if configured
+      if (process.env.CLOUDINARY_URL) {
+        const FormData = require('form-data')
+        const cloudinary = require('cloudinary').v2
+        const uploadResult = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            { folder: 'psg_inquiries', public_id: filename },
+            (err, result) => err ? reject(err) : resolve(result)
+          )
+          uploadStream.end(buffer)
+        })
+        permanentUrl = uploadResult.secure_url
+        console.log(`[MEDIA] Uploaded to Cloudinary: ${permanentUrl}`)
+      } else {
+        // Save locally as fallback
+        const localPath = path.join(__dirname, 'uploads', filename)
+        require('fs').mkdirSync(path.join(__dirname, 'uploads'), { recursive: true })
+        require('fs').writeFileSync(localPath, buffer)
+        permanentUrl = `[local:${filename}]`
+        console.log(`[MEDIA] Saved locally: ${localPath}`)
+      }
+    } catch (dlErr) {
+      console.log('[MEDIA] Download/upload failed:', dlErr.message)
+      permanentUrl = `[media_id:${mediaId}]` // store ID for manual retrieval
+    }
+
+    // Save to Google Sheet
     const { addMediaAttachment } = require('./services/googleSheets')
     try {
-      await addMediaAttachment(from, mediaType, mimeType, mediaUrl, caption)
+      await addMediaAttachment(from, mediaType, mimeType, permanentUrl, caption)
     } catch (e) {
       console.log('Sheets media error:', e.message)
     }
 
-    // If customer is in lead session, attach media to their session
+    // If customer is in lead session
     if (leadSessions[from]) {
-      leadSessions[from].data.attachment = mediaUrl
-      await sendMessage(from, `📎 File received! I've noted it with your inquiry.\n\nLet's continue...`)
+      leadSessions[from].data.attachment = permanentUrl
 
-      // Find next unanswered step
+      // Mark size + quantity as provided-via-image so wizard skips them
       const session = leadSessions[from]
+      if (!session.data.size) session.data.size = '[see attached image]'
+      if (!session.data.quantity) session.data.quantity = '[see attached image]'
+
+      await sendMessage(from, `📎 Image received! I've noted the sizes from your attachment.\n\nLet's continue...`)
+
+      // Advance past already-filled steps
       while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
         session.step++
       }
       if (session.step < LEAD_STEPS.length) {
         await sendMessage(from, LEAD_STEPS[session.step].question)
+      } else {
+        // All steps done — save lead
+        const lead = { phone: from, ...session.data }
+        delete leadSessions[from]
+        try { await saveCustomerLead(lead) } catch (e) { console.log('Lead save error:', e.message) }
+        const summary = `✅ *Thank you ${lead.name}!*\n\nYour inquiry has been recorded:\n\n*Glass Type:* ${lead.glassType}\n*Size:* ${lead.size}\n*Quantity:* ${lead.quantity}\n*Location:* ${lead.city}${lead.attachment ? `\n*Attachment:* ${lead.attachment}` : ''}\n\nA PSG representative will contact you shortly.\n\n_For urgent queries: +92-21-35042275_`
+        await sendMessage(from, summary)
       }
       return
     }
 
-    // Not in lead session — acknowledge and store
+    // Not in lead session
     await sendMessage(from, `📎 Thank you! Your file has been received and saved.\n\nOur team will review it. For faster response:\n📞 +92-21-35042275`)
-
-    // Log to inquiries
-    try { await saveInquiry(from, `[${mediaType.toUpperCase()} ATTACHMENT] ${caption}`, `Media saved: ${mediaUrl}`) } catch (e) {}
+    try { await saveInquiry(from, `[${mediaType.toUpperCase()} ATTACHMENT] ${caption}`, `Media saved: ${permanentUrl}`) } catch (e) {}
 
   } catch (err) {
     console.log('Media handler error:', err.message)
@@ -122,6 +172,16 @@ function scoreLead(text) {
   if (hotKeywords.some(k => t.includes(k))) return '🔴 HOT'
   if (warmKeywords.some(k => t.includes(k))) return '🟡 WARM'
   return '🔵 COLD'
+}
+
+function detectGlassType(text) {
+  const t = text.toLowerCase()
+  if (t.includes('bullet') || t.includes('br4') || t.includes('br6') || t.includes('br7')) return '3'
+  if (t.includes('laminated') || t.includes('laminate') || t.includes('pvb')) return '2'
+  if (t.includes('dgu') || t.includes('double glaz') || t.includes('insulated') || t.includes('double glazed')) return '4'
+  if (t.includes('tempered') || t.includes('toughened') || t.includes('tglass') || t.includes('t glass')) return '1'
+  if (/\d+mm/i.test(t)) return '1' // thickness hint = tempered
+  return null
 }
 
 function getRates() {
@@ -303,8 +363,16 @@ app.post('/webhook', async (req, res) => {
     // Trigger lead wizard on hot lead
     if (isHotLead(text) && !leadSessions[from]) {
       const preData = {}
+
+      // Pre-fill glass type from initial message
+      const glassType = detectGlassType(text)
+      if (glassType) preData.glassType = glassType
+
+      // Pre-fill size if dimensions mentioned
       const dims = extractDimensions(text)
       if (dims) preData.size = text
+
+      // Pre-fill quantity if mentioned
       const pieces = extractPieces(text)
       if (pieces > 1) preData.quantity = String(pieces)
 
@@ -421,6 +489,15 @@ ${Object.entries(kb.technicalSpecs.thicknessGuide).map(([k, v]) => `${k}: ${v}`)
 
 Fire Rated Glass:
 ${Object.entries(kb.technicalSpecs.fireRated).map(([k, v]) => `${k}: ${v}`).join('\n')}
+
+Automotive Glass:
+- OEM Partners: ${kb.technicalSpecs.automotive.oemPartners.join('; ')}
+- Local bus body fabricators: ${kb.technicalSpecs.automotive.localBodyBuilders}
+- Windshield: ${kb.technicalSpecs.automotive.glassTypes.windshield}
+- Side windows: ${kb.technicalSpecs.automotive.glassTypes.sideWindows}
+- Rear window: ${kb.technicalSpecs.automotive.glassTypes.rearWindow}
+- Armored vehicle: ${kb.technicalSpecs.automotive.glassTypes.armoredVehicle}
+- Customization: ${kb.technicalSpecs.automotive.customization}
 
 WHY PSG:
 ${kb.competitors.whyPSG}
