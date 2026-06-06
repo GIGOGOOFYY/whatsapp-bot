@@ -157,11 +157,32 @@ async function handleMedia(from, message) {
   }
 }
 
+// ==========================
+// NEW: Detect pure rate requests
+// ==========================
+function isRateRequest(text) {
+  const t = text.toLowerCase()
+  const rateOnlyPhrases = [
+    'i need rates', 'show rates', 'rate list', 'price list',
+    'current rates', 'tell me rates', 'what are the rates',
+    'rates please', 'send rates', 'rates only'
+  ]
+  return rateOnlyPhrases.some(phrase => t.includes(phrase))
+}
+
+// ==========================
+// MODIFIED: Hot lead now excludes rate requests
+// ==========================
 function isHotLead(text) {
+  // If user is only asking for rates, it's not a hot lead for order taking
+  if (isRateRequest(text)) return false
+
   const t = text.toLowerCase()
   const infoOnly = ['information', 'info', 'what is', 'tell me', 'explain', 'how does', 'what are', 'good afternoon', 'good morning', 'good evening', 'hello', 'hi', 'assalam', 'salam']
   if (infoOnly.some(k => t.includes(k))) return false
-  const buyKeywords = ['quotation', 'quote', 'buy', 'order', 'purchase', 'i need', 'i want', 'i require', 'send me price', 'give me price', 'price of', 'cost of', 'rate of', 'chahiye', 'required']
+  
+  // Words that indicate a genuine interest in buying or getting a quote
+  const buyKeywords = ['quotation', 'quote', 'buy', 'order', 'purchase', 'i need', 'i want', 'i require', 'send me price', 'give me price', 'price of', 'cost of', 'chahiye', 'required']
   return buyKeywords.some(k => t.includes(k))
 }
 
@@ -317,6 +338,14 @@ app.post('/webhook', async (req, res) => {
     }
 
     // ==========================
+    // RATE REQUEST HANDLER (NEW)
+    // ==========================
+    if (isRateRequest(text)) {
+      await sendMessage(from, ratesToText(getRates()))
+      return res.sendStatus(200)
+    }
+
+    // ==========================
     // HUMAN HANDOVER
     // ==========================
     const handoverKeywords = ['talk to sales', 'need representative', 'call me', 'speak to someone', 'human', 'agent', 'sales team', 'representative']
@@ -360,7 +389,7 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200)
     }
 
-    // Trigger lead wizard on hot lead
+    // Trigger lead wizard on hot lead (genuine purchase interest)
     if (isHotLead(text) && !leadSessions[from]) {
       const preData = {}
 
