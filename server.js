@@ -409,7 +409,7 @@ function ratesToText(rates) {
   if (rates.polishing?.flat_polish) lines.push(`  Polishing: Rs.${rates.polishing.flat_polish}`)
   if (rates.beveling?.per_sqft) lines.push(`  Beveling: Rs.${rates.beveling.per_sqft ?? 'TBD'}`)
   if (rates.double_glaze?.per_sqft) lines.push(`  Double Glaze: Rs.${rates.double_glaze.per_sqft ?? 'TBD'}`)
-  lines.push('\n_Reply "update [item] [value]" to change any rate_')
+  //lines.push('\n_Reply "update [item] [value]" to change any rate_')
   return lines.join('\n')
 }
 
@@ -636,6 +636,9 @@ WHY PSG: ${kb.competitors.whyPSG}`
   const models = [
     'google/gemma-3-27b-it:free',
     'deepseek/deepseek-chat-v3-0324:free',
+    'openai/gpt-4o-mini',
+    'google/gemini-flash-1.5',
+    'meta-llama/llama-3.3-70b-instruct:free',
     'openai/gpt-4o-mini'
   ]
 
