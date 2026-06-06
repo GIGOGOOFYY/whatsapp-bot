@@ -20,8 +20,8 @@ connectDB()
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'mytoken123'
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN || ''
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY || ''
-const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || ''
-const ADMIN_NUMBER = process.env.ADMIN_PHONE || '923000306648'
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID || ''
+const ADMIN_NUMBER = process.env.ADMIN_PHONE || ''
 const RATES_FILE = path.join(__dirname, 'Rates.json')
 
 const openai = new OpenAI({
