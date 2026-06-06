@@ -53,7 +53,7 @@ PSG is committed to innovation, quality, and safety — setting the benchmark fo
     },
     {
       name: "Automotive Glass",
-      description: "Specialized safety glass for vehicles including windshields (laminated), side windows (tempered), and rear windows. PSG also manufactures bullet-resistant automotive glass for armored vehicles."
+      description: "Specialized safety glass for vehicles. PSG manufactures and supplies:\n\n• Windshields (laminated, curved) — for commercial buses, passenger vehicles, and specialty vehicles\n• Side windows (tempered) — custom-cut to vehicle specifications\n• Rear windows (tempered, heated)\n• Bullet-resistant automotive glass — for armored vehicles (BR4/BR6/BR7)\n\n*OEM Partners:* PSG supplies glass to major vehicle assemblers in Pakistan:\n- Daewoo Pakistan (Daewoo Bus)\n- Master Motor Corporation\n- Hino Pakistan (trucks & buses)\n- Ghandhara Industries\n- Universal/Higer Buses\n\n*Local Bus Body Fabricators:* PSG provides custom-cut tempered and laminated glass for local coach and bus body builders across Pakistan — including curved windshields, side glass, and rear glass to custom dimensions.\n\nAll automotive glass manufactured to safety standards with safety breakage properties."
     },
     {
       name: "Fire-Resistant & Bullet-Resistant Glass",
@@ -223,6 +223,18 @@ PSG is committed to innovation, quality, and safety — setting the benchmark fo
       a: "Monday to Saturday. Call +92-21-35042275 or +92-308-2909634 for exact hours."
     },
     {
+      q: "Does PSG supply glass to bus manufacturers?",
+      a: "Yes. PSG is an established OEM glass supplier to Daewoo Pakistan, Master Motor, Hino Pakistan, Ghandhara Industries, and Universal/Higer. We also supply custom glass to local bus body fabricators across Pakistan."
+    },
+    {
+      q: "Can PSG make custom bus or vehicle glass?",
+      a: "Yes. PSG manufactures custom-cut and custom-curved windshields, side windows, and rear glass for local bus body builders. Fabricators can provide dimensions or templates and PSG will manufacture to spec."
+    },
+    {
+      q: "What automotive glass does PSG offer?",
+      a: "PSG offers: curved laminated windshields, tempered side windows, heated rear windows, and bullet-resistant automotive glass for armored vehicles (BR4/BR6/BR7)."
+    },
+    {
       q: "Does PSG do residential projects?",
       a: "Yes — from shower enclosures and mirrors to full window/door systems, glass railings, and skylights for homes."
     },
@@ -297,6 +309,25 @@ PSG is committed to innovation, quality, and safety — setting the benchmark fo
         colored: "Available in bronze, grey, blue, and other tints. Used in feature walls and designer spaces."
       },
       customization: "Custom sizes, shapes (round, arch, irregular), and beveled edges available."
+    },
+
+    automotive: {
+      description: "PSG is a leading supplier of automotive safety glass in Pakistan, serving both OEM assemblers and local bus body fabricators since 1969.",
+      oemPartners: [
+        "Daewoo Pakistan (Daewoo Bus) — windshields and side glass for commercial bus fleet",
+        "Master Motor Corporation — automotive glass supply",
+        "Hino Pakistan — trucks and buses windshields and side glass",
+        "Ghandhara Industries — vehicle glass supply",
+        "Universal/Higer Buses — commercial bus glass"
+      ],
+      localBodyBuilders: "PSG supplies custom-cut and custom-curved glass to local bus and coach body fabricators across Pakistan. Can manufacture to exact dimensions provided by fabricator.",
+      glassTypes: {
+        windshield: "Laminated curved glass (PVB interlayer). Stays intact on impact. Acoustic and UV filtering options available.",
+        sideWindows: "Tempered glass — shatters into safe blunt pieces on impact. Custom cut to vehicle body specs.",
+        rearWindow: "Tempered, with optional defrost element (heated rear window).",
+        armoredVehicle: "Bullet-resistant laminated glass BR4/BR6/BR7. PSG is one of very few manufacturers globally making curved bullet-resistant glass for armored vehicles."
+      },
+      customization: "Custom sizes, curves, and shapes available. Fabricators can provide templates or drawings. PSG can match OEM specifications."
     }
   }
 }
