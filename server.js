@@ -634,8 +634,8 @@ WHY PSG: ${kb.competitors.whyPSG}`
   ]
 
   const models = [
-    'google/gemini-flash-1.5',
-    'meta-llama/llama-3.3-70b-instruct:free',
+    'google/gemma-3-27b-it:free',
+    'deepseek/deepseek-chat-v3-0324:free',
     'openai/gpt-4o-mini'
   ]
 
