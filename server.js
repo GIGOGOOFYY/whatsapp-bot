@@ -47,9 +47,13 @@ const LEAD_STEPS = [
 ]
 
 // ==========================
-// MEDIA HANDLER
+// CANCEL KEYWORDS
 // ==========================
+const CANCEL_KEYWORDS = ['cancel', 'exit', 'stop', 'quit', 'nevermind', 'forget it', 'abort']
 
+// ==========================
+// MEDIA HANDLER (unchanged)
+// ==========================
 async function downloadMediaBuffer(mediaUrl) {
   const res = await axios.get(mediaUrl, {
     headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
@@ -74,18 +78,15 @@ async function handleMedia(from, message) {
     const mimeType = mediaObj.mime_type || ''
     const caption = mediaObj.caption || ''
 
-    // Step 1: get the short-lived Meta URL
     const tempUrl = await getMediaUrl(mediaId)
     console.log(`[MEDIA] ${from} sent ${mediaType}: ${tempUrl}`)
 
-    // Step 2: download binary using Bearer token (fixes 401 issue)
-    let permanentUrl = tempUrl // fallback
+    let permanentUrl = tempUrl
     try {
       const buffer = await downloadMediaBuffer(tempUrl)
       const ext = mimeType.includes('pdf') ? 'pdf' : mimeType.includes('png') ? 'png' : 'jpg'
       const filename = `psg_${from}_${Date.now()}.${ext}`
 
-      // Upload to Cloudinary if configured
       if (process.env.CLOUDINARY_URL) {
         const FormData = require('form-data')
         const cloudinary = require('cloudinary').v2
@@ -99,7 +100,6 @@ async function handleMedia(from, message) {
         permanentUrl = uploadResult.secure_url
         console.log(`[MEDIA] Uploaded to Cloudinary: ${permanentUrl}`)
       } else {
-        // Save locally as fallback
         const localPath = path.join(__dirname, 'uploads', filename)
         require('fs').mkdirSync(path.join(__dirname, 'uploads'), { recursive: true })
         require('fs').writeFileSync(localPath, buffer)
@@ -108,10 +108,9 @@ async function handleMedia(from, message) {
       }
     } catch (dlErr) {
       console.log('[MEDIA] Download/upload failed:', dlErr.message)
-      permanentUrl = `[media_id:${mediaId}]` // store ID for manual retrieval
+      permanentUrl = `[media_id:${mediaId}]`
     }
 
-    // Save to Google Sheet
     const { addMediaAttachment } = require('./services/googleSheets')
     try {
       await addMediaAttachment(from, mediaType, mimeType, permanentUrl, caption)
@@ -119,25 +118,20 @@ async function handleMedia(from, message) {
       console.log('Sheets media error:', e.message)
     }
 
-    // If customer is in lead session
     if (leadSessions[from]) {
       leadSessions[from].data.attachment = permanentUrl
-
-      // Mark size + quantity as provided-via-image so wizard skips them
       const session = leadSessions[from]
       if (!session.data.size) session.data.size = '[see attached image]'
       if (!session.data.quantity) session.data.quantity = '[see attached image]'
 
       await sendMessage(from, `📎 Image received! I've noted the sizes from your attachment.\n\nLet's continue...`)
 
-      // Advance past already-filled steps
       while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
         session.step++
       }
       if (session.step < LEAD_STEPS.length) {
         await sendMessage(from, LEAD_STEPS[session.step].question)
       } else {
-        // All steps done — save lead
         const lead = { phone: from, ...session.data }
         delete leadSessions[from]
         try { await saveCustomerLead(lead) } catch (e) { console.log('Lead save error:', e.message) }
@@ -147,7 +141,6 @@ async function handleMedia(from, message) {
       return
     }
 
-    // Not in lead session
     await sendMessage(from, `📎 Thank you! Your file has been received and saved.\n\nOur team will review it. For faster response:\n📞 +92-21-35042275`)
     try { await saveInquiry(from, `[${mediaType.toUpperCase()} ATTACHMENT] ${caption}`, `Media saved: ${permanentUrl}`) } catch (e) {}
 
@@ -157,9 +150,6 @@ async function handleMedia(from, message) {
   }
 }
 
-// ==========================
-// NEW: Detect pure rate requests
-// ==========================
 function isRateRequest(text) {
   const t = text.toLowerCase()
   const rateOnlyPhrases = [
@@ -170,18 +160,11 @@ function isRateRequest(text) {
   return rateOnlyPhrases.some(phrase => t.includes(phrase))
 }
 
-// ==========================
-// MODIFIED: Hot lead now excludes rate requests
-// ==========================
 function isHotLead(text) {
-  // If user is only asking for rates, it's not a hot lead for order taking
   if (isRateRequest(text)) return false
-
   const t = text.toLowerCase()
   const infoOnly = ['information', 'info', 'what is', 'tell me', 'explain', 'how does', 'what are', 'good afternoon', 'good morning', 'good evening', 'hello', 'hi', 'assalam', 'salam']
   if (infoOnly.some(k => t.includes(k))) return false
-  
-  // Words that indicate a genuine interest in buying or getting a quote
   const buyKeywords = ['quotation', 'quote', 'buy', 'order', 'purchase', 'i need', 'i want', 'i require', 'send me price', 'give me price', 'price of', 'cost of', 'chahiye', 'required']
   return buyKeywords.some(k => t.includes(k))
 }
@@ -201,7 +184,7 @@ function detectGlassType(text) {
   if (t.includes('laminated') || t.includes('laminate') || t.includes('pvb')) return '2'
   if (t.includes('dgu') || t.includes('double glaz') || t.includes('insulated') || t.includes('double glazed')) return '4'
   if (t.includes('tempered') || t.includes('toughened') || t.includes('tglass') || t.includes('t glass')) return '1'
-  if (/\d+mm/i.test(t)) return '1' // thickness hint = tempered
+  if (/\d+mm/i.test(t)) return '1'
   return null
 }
 
@@ -312,6 +295,16 @@ app.post('/webhook', async (req, res) => {
     console.log(`[${from}]: ${text}`)
 
     // ==========================
+    // GLOBAL CANCEL (exits any session)
+    // ==========================
+    if (CANCEL_KEYWORDS.includes(text.toLowerCase().trim())) {
+      if (leadSessions[from]) delete leadSessions[from]
+      if (adminSessions[from]) delete adminSessions[from]
+      await sendMessage(from, `✅ Cancelled current operation. How can I help you?`)
+      return res.sendStatus(200)
+    }
+
+    // ==========================
     // ADMIN HANDLING
     // ==========================
     if (from === ADMIN_NUMBER) {
@@ -338,7 +331,7 @@ app.post('/webhook', async (req, res) => {
     }
 
     // ==========================
-    // RATE REQUEST HANDLER (NEW)
+    // RATE REQUEST HANDLER
     // ==========================
     if (isRateRequest(text)) {
       await sendMessage(from, ratesToText(getRates()))
@@ -357,10 +350,17 @@ app.post('/webhook', async (req, res) => {
     }
 
     // ==========================
-    // LEAD COLLECTION WIZARD
+    // LEAD COLLECTION WIZARD (with cancel support)
     // ==========================
     if (leadSessions[from]) {
       const session = leadSessions[from]
+
+      // Cancel inside wizard
+      if (CANCEL_KEYWORDS.includes(text.toLowerCase().trim())) {
+        delete leadSessions[from]
+        await sendMessage(from, `❌ Quotation cancelled. You can start again by typing "quote" or "rates". How else can I help?`)
+        return res.sendStatus(200)
+      }
 
       while (session.step < LEAD_STEPS.length && session.data[LEAD_STEPS[session.step].field]) {
         session.step++
@@ -392,21 +392,15 @@ app.post('/webhook', async (req, res) => {
     // Trigger lead wizard on hot lead (genuine purchase interest)
     if (isHotLead(text) && !leadSessions[from]) {
       const preData = {}
-
-      // Pre-fill glass type from initial message
       const glassType = detectGlassType(text)
       if (glassType) preData.glassType = glassType
-
-      // Pre-fill size if dimensions mentioned
       const dims = extractDimensions(text)
       if (dims) preData.size = text
-
-      // Pre-fill quantity if mentioned
       const pieces = extractPieces(text)
       if (pieces > 1) preData.quantity = String(pieces)
 
       leadSessions[from] = { step: 0, data: preData }
-      await sendMessage(from, `Great! I'd love to help you with a quotation. 😊\n\nMay I have your *name*?`)
+      await sendMessage(from, `Great! I'd love to help you with a quotation. 😊\n\nMay I have your *name*? (Type "cancel" to stop)`)
       return res.sendStatus(200)
     }
 
@@ -437,6 +431,7 @@ app.post('/webhook', async (req, res) => {
 })
 
 async function askAI(userId, userMessage) {
+  // ... (unchanged - your existing askAI function)
   const r = getRates()
   const calculation = generateCalculation(userMessage)
 
