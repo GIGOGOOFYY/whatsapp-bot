@@ -75,10 +75,7 @@ PSG is committed to innovation, quality, and safety — setting the benchmark fo
       name: "Aluminium Windows & Doors — Thermal Break",
       description: "Premium aluminium systems with a polyamide thermal break barrier inside the profile that prevents heat transfer between inside and outside. Types: Casement, Awning, Sliding, Folding/Bi-fold, Tilt & Turn — same as standard but with thermal insulation. Significantly reduces heat gain/loss, condensation, and energy costs. Recommended for air-conditioned spaces, high-rise buildings, hotels, and energy-efficient projects. More expensive than standard aluminium but lower long-term energy bills."
     },
-    {
-      name: "UPVC Doors & Windows",
-      description: "Unplasticized PVC frames — excellent thermal and acoustic insulation, no corrosion, low maintenance. Types: Casement, Sliding, Tilt & Turn, Folding. White and woodgrain finishes available. Alternative to aluminium thermal break at competitive cost."
-    },
+    
     {
       name: "Aluminium Composite Panels (ACP / Alucobond)",
       description: "Lightweight cladding panels for building exteriors. Two aluminium sheets bonded to a polyethylene core. PSG supplies Alucobond branded ACP. Low maintenance, highly durable, available in hundreds of colors and finishes including solid, metallic, mirror, and wood. Used in building facades, signage, and interior cladding."
@@ -96,7 +93,6 @@ PSG is committed to innovation, quality, and safety — setting the benchmark fo
     "Shop Fronts",
     "Skylights",
     "Aluminum Doors & Windows (Standard & Thermal Break)",
-    "UPVC Doors & Windows",
     "Shower Cubicles & Enclosures",
     "Glass Railings & Staircases",
     "Glass Furniture",
@@ -297,8 +293,8 @@ PSG is committed to innovation, quality, and safety — setting the benchmark fo
     },
     figureGlass: {
       description: "Patterned glass with embossed surface. Provides privacy + diffused light.",
-      patterns: ["Flora", "Nashiji", "Karatachi", "Delta", "Chinchilla", "Autumn"],
-      thickness: "4mm and 5mm",
+      patterns: ["Flora", "Nashiji", "Karatachi", "Delta", "Chinchilla", "Autumn", "Moru"],
+      thickness: ["4mm, 5mm", "8mm"],
       uses: "Bathroom windows, kitchen cabinets, interior partitions, decorative screens"
     },
     mirrors: {
