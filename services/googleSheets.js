@@ -7,7 +7,7 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: 'v4', auth })
 
-const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID
+const SPREADSHEET_ID = '1z4DpE0fL9633pmAftsmR9OTPPhngX3oQIKtlsLED4k8'
 
 async function addInquiry(phone, message, reply) {
   await sheets.spreadsheets.values.append({
