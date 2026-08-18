@@ -14,23 +14,30 @@ import { putMedia, getMedia } from './lib/media.js'
 
 const CANCEL_KEYWORDS = ['cancel', 'exit', 'stop', 'quit', 'nevermind', 'forget it', 'abort']
 
-// Personal-number channel only (see computePersonalReply below): a bare greeting with no product
-// intent shouldn't wake the bot up on someone's personal line. Only suppresses the reply when the
-// ENTIRE message is just a greeting — "hi, need a quote for tempered glass" still goes through
-// normally since it doesn't match one of these phrases outright.
-const GREETING_PHRASES = [
-  'hi', 'hii', 'hiii', 'hiiii', 'hello', 'hellow', 'hey', 'heyy', 'yo',
-  'salam', 'salaam', 'assalam o alaikum', 'assalamoalaikum', 'assalamualaikum',
-  'asalam o alaikum', 'asalamoalaikum', 'aoa', 'a o a',
-  'salam alaikum', 'walaikum salam', 'wasalam', 'w salam',
-  'good morning', 'good afternoon', 'good evening', 'good night',
-  'kese ho', 'kaise ho', 'kya hal hai', 'how are you', 'whats up', "what's up", 'sup'
+// Personal-number channel only (see computePersonalReply below): the bot should only wake up on
+// a personal line for something that's actually about PSG's products/rates/quoting — not a bare
+// greeting, and not a vague "I need some information" from someone who may not even be a
+// customer (could be a friend/family member texting that number about anything). isHotLead()
+// deliberately excludes "information"/"info"/etc. to avoid false wizard-triggers on the official
+// channel, which means those messages fall through to the general AI assistant there — fine on
+// the official number, but too eager on a personal line. This keyword gate requires the message
+// to mention something concrete before any reply (including the AI fallback) is sent.
+const PERSONAL_PRODUCT_KEYWORDS = [
+  'glass', 'shisha', 'sheesha', 'mirror', 'window', 'door', 'aluminum', 'aluminium',
+  'tempered', 'toughened', 'laminated', 'laminate', 'pvb',
+  'dgu', 'double glaz', 'insulated',
+  'bullet', 'br4', 'br6', 'br7', 'bulletproof',
+  'thermal break', 'sliding', 'casement', 'tilt', 'awning', 'facade',
+  'rate', 'rates', 'price', 'prices', 'pricing', 'quote', 'quotation', 'estimate',
+  'thickness', 'sqft', 'sq ft', 'square feet', 'per foot', 'per sqft',
+  'order', 'delivery', 'installation', 'fitting', 'psg', 'safety glass'
 ]
 
-function isPureGreeting(text) {
-  const normalized = text.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
-  if (!normalized) return false
-  return GREETING_PHRASES.includes(normalized)
+function isPersonalProductRelated(text) {
+  const lower = text.toLowerCase()
+  if (PERSONAL_PRODUCT_KEYWORDS.some(k => lower.includes(k))) return true
+  if (/\d+\s*mm\b/i.test(text)) return true // e.g. "6mm", "12 mm"
+  return false
 }
 
 // ==========================
@@ -562,10 +569,13 @@ async function computePersonalReply(env, from, rawText, label) {
     return []
   }
 
-  // A bare "Hi" / "Assalam o Alaikum" etc. on someone's personal number shouldn't wake the bot —
-  // only reply once there's an actual product/rate/quote query. Mid-wizard replies never reach
-  // here (handled by the `session` branch above), so this only affects the very first message.
-  if (isPureGreeting(text)) {
+  // A bare "Hi" / "Assalam o Alaikum" or a vague "I need some information" on someone's personal
+  // number shouldn't wake the bot — only reply once the message actually references PSG's
+  // products/rates/quoting, or is an explicit request to talk to a human. Mid-wizard replies
+  // never reach here (handled by the `session` branch above), so this only gates the very first
+  // message of a fresh conversation.
+  const isHandoverRequest = ['talk to sales', 'need representative', 'call me', 'speak to someone', 'human', 'agent', 'sales team', 'representative'].some(k => text.toLowerCase().includes(k))
+  if (!isRateRequest(text) && !isHotLead(text) && !isPersonalProductRelated(text) && !isHandoverRequest) {
     return []
   }
 
@@ -573,7 +583,7 @@ async function computePersonalReply(env, from, rawText, label) {
     return [ratesToText(await getRates(env))]
   }
 
-  if (['talk to sales', 'need representative', 'call me', 'speak to someone', 'human', 'agent', 'sales team', 'representative'].some(k => text.toLowerCase().includes(k))) {
+  if (isHandoverRequest) {
     try { await saveInquiry(env, from, text, 'HANDOVER REQUEST') } catch (e) {}
     return [`A PSG representative will contact you shortly. 📞\n\nPlease share:\n*Name:*\n*Company:*\n*City:*\n*Best time to call:*`]
   }
