@@ -1,0 +1,20 @@
+{
+  "name": "psg-whatsapp-bot-cloudflare",
+  "version": "1.0.0",
+  "description": "PSG WhatsApp AI Bot — Cloudflare Workers + D1 + KV + R2",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "db:migrate": "wrangler d1 execute psg-whatsapp-bot --file=./migrations/0001_init.sql",
+    "db:migrate:remote": "wrangler d1 execute psg-whatsapp-bot --remote --file=./migrations/0001_init.sql"
+  },
+  "dependencies": {
+    "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "wrangler": "^4.123.0"
+  }
+}

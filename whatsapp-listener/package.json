@@ -1,0 +1,19 @@
+{
+  "name": "psg-whatsapp-listener",
+  "version": "1.0.0",
+  "description": "Always-on WhatsApp Web bridge for personal PSG numbers. Links a phone as a companion device (like WhatsApp Web) and forwards product-related messages to the Cloudflare bot for a reply, leaving personal chats/calls on that phone completely untouched.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.19.2",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.34.7"
+  },
+  "allowScripts": {
+    "puppeteer@24.38.0": true
+  }
+}

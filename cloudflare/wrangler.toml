@@ -1,0 +1,33 @@
+name = "psg-whatsapp-bot"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# ---- D1 (replaces MongoDB / Mongoose) ----
+# Create with: wrangler d1 create psg-whatsapp-bot
+# then paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "psg-whatsapp-bot"
+database_id = "343710e5-7f74-4b9d-99ff-dbb8f7d4a62c"
+
+# ---- KV (replaces in-memory sessions + Rates.json file) ----
+# Create with: wrangler kv namespace create SESSIONS
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "f88263433da34695b24483b37215958c"
+
+# Media (customer photos/PDFs) is stored in the SESSIONS KV namespace above (lib/media.js) —
+# no R2 bucket needed. R2 requires a payment method on file to enable even on the free tier;
+# KV doesn't, and its free limits (1GB storage, 25MB/value) are plenty for this bot.
+
+# Non-secret config. Secrets (ACCESS_TOKEN, OPENROUTER_KEY, GOOGLE_CREDENTIALS, etc.)
+# are set separately via `wrangler secret put` — see README-CLOUDFLARE.md.
+[vars]
+VERIFY_TOKEN = "mytoken123"
+
+# Public URL of the always-on whatsapp-listener/ service (personal-number bridge — see
+# README-CLOUDFLARE.md "Personal-number channel" section). Leave blank until that's deployed;
+# the "listen" admin command just reports it's unconfigured until this is set.
+LISTENER_BASE_URL = "https://index-reverse-lasting-cingular.trycloudflare.com"
+# LISTENER_API_KEY is a secret, not a var — set with: wrangler secret put LISTENER_API_KEY
+# (must match the same value in whatsapp-listener/.env)
