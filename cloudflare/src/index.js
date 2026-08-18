@@ -14,6 +14,25 @@ import { putMedia, getMedia } from './lib/media.js'
 
 const CANCEL_KEYWORDS = ['cancel', 'exit', 'stop', 'quit', 'nevermind', 'forget it', 'abort']
 
+// Personal-number channel only (see computePersonalReply below): a bare greeting with no product
+// intent shouldn't wake the bot up on someone's personal line. Only suppresses the reply when the
+// ENTIRE message is just a greeting — "hi, need a quote for tempered glass" still goes through
+// normally since it doesn't match one of these phrases outright.
+const GREETING_PHRASES = [
+  'hi', 'hii', 'hiii', 'hiiii', 'hello', 'hellow', 'hey', 'heyy', 'yo',
+  'salam', 'salaam', 'assalam o alaikum', 'assalamoalaikum', 'assalamualaikum',
+  'asalam o alaikum', 'asalamoalaikum', 'aoa', 'a o a',
+  'salam alaikum', 'walaikum salam', 'wasalam', 'w salam',
+  'good morning', 'good afternoon', 'good evening', 'good night',
+  'kese ho', 'kaise ho', 'kya hal hai', 'how are you', 'whats up', "what's up", 'sup'
+]
+
+function isPureGreeting(text) {
+  const normalized = text.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!normalized) return false
+  return GREETING_PHRASES.includes(normalized)
+}
+
 // ==========================
 // LEAD WIZARD — INTERACTIVE STEPS
 // ==========================
@@ -540,6 +559,13 @@ async function computePersonalReply(env, from, rawText, label) {
       session.pendingOptions = null
       return advancePersonalLead(env, from, session)
     }
+    return []
+  }
+
+  // A bare "Hi" / "Assalam o Alaikum" etc. on someone's personal number shouldn't wake the bot —
+  // only reply once there's an actual product/rate/quote query. Mid-wizard replies never reach
+  // here (handled by the `session` branch above), so this only affects the very first message.
+  if (isPureGreeting(text)) {
     return []
   }
 

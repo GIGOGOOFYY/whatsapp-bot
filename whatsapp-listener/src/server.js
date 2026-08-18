@@ -84,27 +84,41 @@ function buildClient(label) {
 
   // The actual "listening" — every message that lands on this number passes through here.
   client.on('message', async (msg) => {
+    console.log(`[${label}] message received: type=${msg.type} from=${msg.from} fromMe=${msg.fromMe} isStatus=${msg.isStatus}`)
     try {
       if (msg.fromMe || msg.isStatus) return
-      const chat = await msg.getChat()
-      if (chat.isGroup) return // never auto-reply in groups
+
+      // Group chat IDs always end in @g.us, broadcast lists in @broadcast — checking msg.from
+      // directly (instead of calling msg.getChat()) avoids round-tripping through WhatsApp Web's
+      // internal page JS, which throws on this account/version (same class of issue as the
+      // pairing-code bug — internals shift between WhatsApp Web versions).
+      const fromId = String(msg.from || '')
+      if (fromId.endsWith('@g.us') || fromId.endsWith('@broadcast')) return // never auto-reply in groups/broadcasts
       if (msg.type !== 'chat') return // v1: text only, no media/voice-note handling yet
 
-      const res = await fetch(`${WORKER_BASE_URL}/webhook/personal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-listener-key': API_KEY },
-        body: JSON.stringify({ from: normalizeFrom(msg.from), text: msg.body, label })
-      })
+      let res
+      try {
+        res = await fetch(`${WORKER_BASE_URL}/webhook/personal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-listener-key': API_KEY },
+          body: JSON.stringify({ from: normalizeFrom(msg.from), text: msg.body, label })
+        })
+      } catch (err) {
+        console.log(`[${label}] fetch to Worker failed:`, (err && (err.stack || err.message)) || err)
+        return
+      }
       if (!res.ok) {
-        console.log(`[${label}] Worker returned ${res.status}`)
+        const bodyText = await res.text().catch(() => '(no body)')
+        console.log(`[${label}] Worker returned ${res.status}: ${bodyText}`)
         return
       }
       const data = await res.json()
+      console.log(`[${label}] Worker reply:`, JSON.stringify(data))
       for (const reply of (data.messages || [])) {
         await client.sendMessage(msg.from, reply)
       }
     } catch (err) {
-      console.log(`[${label}] message handling error:`, err.message)
+      console.log(`[${label}] message handling error:`, (err && (err.stack || err.message)) || err)
     }
   })
 
