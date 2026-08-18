@@ -3,7 +3,7 @@
 // (D1 + KV + R2). Business logic (lead wizard steps, hot-lead detection, rates parsing, AI
 // prompt) is unchanged from the original — only the runtime plumbing changed.
 
-import { sendMessage, sendButtons, sendList, getMediaUrl, downloadMediaBuffer } from './lib/whatsapp.js'
+import { sendMessage, sendButtons, sendList, sendImage, getMediaUrl, downloadMediaBuffer } from './lib/whatsapp.js'
 import { getLeadSession, setLeadSession, deleteLeadSession, getAdminSession, setAdminSession, getConversation, setConversation } from './lib/session.js'
 import { getRates, ratesToText, parseRateUpdate } from './lib/rates.js'
 import { askAI, ocrImageFromBuffer, transcribeAudio } from './lib/ai.js'
@@ -611,7 +611,17 @@ async function handleListenCommand(env, from, text) {
         headers: { 'x-listener-key': env.LISTENER_API_KEY }
       })
       const data = await res.json()
-      await sendMessage(env, from, `*${label}* status: ${data.state}${data.pairingCode ? `\nCode: ${data.pairingCode}` : ''}`)
+      if (data.pairingCode) {
+        await sendMessage(env, from, `*${label}* status: ${data.state}\nCode: ${data.pairingCode}`)
+      } else if (data.state === 'waiting_qr') {
+        // Pairing codes don't work on every account/region — this is the fallback. Meta fetches
+        // the image itself, so the listener needs to be reachable at LISTENER_BASE_URL for this
+        // to load (it always is, since we just called its /status endpoint above).
+        const qrUrl = `${env.LISTENER_BASE_URL}/sessions/${label}/qr.png?key=${env.LISTENER_API_KEY}`
+        await sendImage(env, from, qrUrl, `Scan this from WhatsApp → Settings → Linked Devices → Link a Device on the ${label} phone.`)
+      } else {
+        await sendMessage(env, from, `*${label}* status: ${data.state}`)
+      }
     } catch (e) {
       await sendMessage(env, from, `Couldn't reach the listener service: ${e.message}`)
     }

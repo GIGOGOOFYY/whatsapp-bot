@@ -77,6 +77,12 @@ export async function sendList(env, to, bodyText, buttonLabel, items) {
   })
 }
 
+// Sends an image by public URL (Meta fetches it directly) — used for the "listen" admin
+// command's QR code, since whatsapp-web.js can't produce a text pairing code on every account.
+export async function sendImage(env, to, link, caption) {
+  return postMessage(env, { messaging_product: 'whatsapp', to, type: 'image', image: { link, caption } })
+}
+
 export async function getMediaUrl(env, mediaId) {
   const res = await fetch(`${GRAPH}/${mediaId}`, { headers: authHeaders(env) })
   if (!res.ok) throw new Error(`getMediaUrl failed: ${res.status}`)

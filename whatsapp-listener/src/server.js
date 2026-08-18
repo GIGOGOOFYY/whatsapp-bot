@@ -44,7 +44,16 @@ function normalizeFrom(waId) {
 function buildClient(label) {
   const client = new Client({
     authStrategy: new LocalAuth({ clientId: label }),
-    puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox'] }
+    puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox'] },
+    // whatsapp-web.js ships a bundled WhatsApp Web version that goes stale as WhatsApp updates
+    // its servers — when that happens, calls like requestPairingCode() fail with cryptic
+    // "Cannot read properties of undefined" errors because the page's internal modules don't
+    // match what the library expects. Pointing at a community-maintained, continuously-updated
+    // version index fixes this instead of pinning to whatever shipped with the npm package.
+    webVersionCache: {
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/{version}.html'
+    }
   })
 
   client.on('qr', async (qr) => {
@@ -151,6 +160,18 @@ app.get('/sessions/:label/status', requireAuth, (req, res) => {
   const entry = sessions.get(req.params.label)
   if (!entry) return res.json({ state: 'not_started' })
   res.json({ state: entry.state, pairingCode: entry.pairingCode, qrDataUrl: entry.qrDataUrl })
+})
+
+// Serves the QR as an actual image (not just base64 in JSON) so the Worker can hand Meta's Cloud
+// API a plain URL to fetch and send as a WhatsApp image message — Meta fetches media links
+// directly, with no custom headers, so this takes the key as a query param instead of a header.
+app.get('/sessions/:label/qr.png', (req, res) => {
+  if (req.query.key !== API_KEY) return res.status(401).send('unauthorized')
+  const entry = sessions.get(req.params.label)
+  if (!entry || !entry.qrDataUrl) return res.status(404).send('no QR available for this session right now')
+  const base64 = entry.qrDataUrl.split(',')[1]
+  res.set('Content-Type', 'image/png')
+  res.send(Buffer.from(base64, 'base64'))
 })
 
 app.get('/health', (req, res) => res.send('PSG WhatsApp listener — running'))
