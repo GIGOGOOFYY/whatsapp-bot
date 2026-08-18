@@ -40,6 +40,23 @@ function isPersonalProductRelated(text) {
   return false
 }
 
+// A bare product word ("Glass", "Rates", "Window") isn't an inquiry by itself — "glass" alone
+// could mean a hundred different things out of context. Require the message to also read like an
+// actual question or request (a "?", or a request/need/price word in English/Urdu/Roman Urdu)
+// before treating a product-keyword match as real intent.
+const INQUIRY_INTENT_WORDS = [
+  'need', 'want', 'require', 'looking for', 'interested', 'available', 'availabe',
+  'price', 'rate', 'rates', 'cost', 'quote', 'quotation', 'buy', 'order', 'send',
+  'how much', 'batao', 'batayen', 'batayein', 'bata den', 'chahiye', 'chahye', 'chahia', 'chahiy',
+  'kitna', 'kitni', 'kitne', 'milta', 'milti', 'milega', 'hota hai', 'hoti hai', 'hai kya'
+]
+
+function hasInquiryIntent(text) {
+  if (text.includes('?')) return true
+  const lower = text.toLowerCase()
+  return INQUIRY_INTENT_WORDS.some(k => lower.includes(k))
+}
+
 // ==========================
 // LEAD WIZARD — INTERACTIVE STEPS
 // ==========================
@@ -592,13 +609,14 @@ async function computePersonalReply(env, from, rawText, label, to, timestamp) {
     return []
   }
 
-  // A bare "Hi" / "Assalam o Alaikum" or a vague "I need some information" on someone's personal
-  // number shouldn't wake the bot — only reply once the message actually references PSG's
-  // products/rates/quoting, or is an explicit request to talk to a human. Mid-wizard replies
-  // never reach here (handled by the `session` branch above), so this only gates the very first
-  // message of a fresh conversation.
+  // A bare "Hi" / "Assalam o Alaikum" / vague "I need some information" / even a single bare
+  // product word like "Glass" on someone's personal number shouldn't wake the bot — only reply
+  // once the message actually reads like a real question or request about PSG's products/rates.
+  // Mid-wizard replies never reach here (handled by the `session` branch above), so this only
+  // gates the very first message of a fresh conversation.
   const isHandoverRequest = ['talk to sales', 'need representative', 'call me', 'speak to someone', 'human', 'agent', 'sales team', 'representative'].some(k => text.toLowerCase().includes(k))
-  if (!isRateRequest(text) && !isHotLead(text) && !isPersonalProductRelated(text) && !isHandoverRequest) {
+  const isRealProductInquiry = isPersonalProductRelated(text) && hasInquiryIntent(text)
+  if (!isRateRequest(text) && !isHotLead(text) && !isRealProductInquiry && !isHandoverRequest) {
     return []
   }
 
