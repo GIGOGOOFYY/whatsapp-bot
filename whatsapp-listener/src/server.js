@@ -66,8 +66,12 @@ function buildClient(label) {
 
   client.on('ready', () => {
     const entry = sessions.get(label)
-    if (entry) { entry.state = 'ready'; entry.pairingCode = null; entry.qrDataUrl = null }
-    console.log(`[${label}] linked and listening`)
+    // client.info.wid.user is the linked account's own phone number — captured here so it can be
+    // handed to the Worker with each message, letting the bot's reply say "you messaged <this
+    // number>" instead of the customer having to guess which line picked them up.
+    const selfNumber = client.info && client.info.wid ? client.info.wid.user : null
+    if (entry) { entry.state = 'ready'; entry.pairingCode = null; entry.qrDataUrl = null; entry.selfNumber = selfNumber }
+    console.log(`[${label}] linked and listening as ${selfNumber || 'unknown number'}`)
   })
 
   client.on('auth_failure', (msg) => {
@@ -98,10 +102,17 @@ function buildClient(label) {
 
       let res
       try {
+        const entry = sessions.get(label)
         res = await fetch(`${WORKER_BASE_URL}/webhook/personal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-listener-key': API_KEY },
-          body: JSON.stringify({ from: normalizeFrom(msg.from), text: msg.body, label })
+          body: JSON.stringify({
+            from: normalizeFrom(msg.from),
+            text: msg.body,
+            label,
+            to: entry ? entry.selfNumber : null,
+            timestamp: msg.timestamp
+          })
         })
       } catch (err) {
         console.log(`[${label}] fetch to Worker failed:`, (err && (err.stack || err.message)) || err)

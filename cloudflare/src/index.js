@@ -526,7 +526,30 @@ async function advancePersonalLead(env, from, session) {
   return completePersonalLead(env, from, session)
 }
 
-async function computePersonalReply(env, from, rawText, label) {
+// First reply of a fresh personal-channel conversation opens by identifying the bot and echoing
+// back what the person asked and when — so it's clear to them (and to whoever owns the linked
+// number) that an AI assistant picked this up, not the number's actual owner. `to`/`timestamp`
+// come from the listener service (see whatsapp-listener/src/server.js) — timestamp is a Unix
+// seconds value from whatsapp-web.js; `to` is the linked account's own number (may be missing on
+// an older listener build, handled gracefully below).
+function formatKarachiTime(unixSeconds) {
+  try {
+    const secs = unixSeconds || Math.floor(Date.now() / 1000)
+    return new Date(secs * 1000).toLocaleString('en-US', { timeZone: 'Asia/Karachi', hour: 'numeric', minute: '2-digit', hour12: true })
+  } catch (e) {
+    return ''
+  }
+}
+
+function personalIntroLine(label, to, text, timestamp) {
+  const name = label ? label.charAt(0).toUpperCase() + label.slice(1) : 'PSG'
+  const numberPart = to ? ` (+${String(to).replace(/^\+/, '')})` : ''
+  const timeStr = formatKarachiTime(timestamp)
+  const whenPart = timeStr ? ` ${timeStr} ko` : ''
+  return `Assalam o Alaikum! Main *PSG AI Assistant* hoon.\n\nAap ne *${name}*${numberPart} ke number par${whenPart} yeh message bheja tha:\n_"${text}"_\n\nIska jawab:`
+}
+
+async function computePersonalReply(env, from, rawText, label, to, timestamp) {
   const text = (rawText || '').trim()
   if (!text) return []
 
@@ -579,13 +602,15 @@ async function computePersonalReply(env, from, rawText, label) {
     return []
   }
 
+  const intro = personalIntroLine(label, to, text, timestamp)
+
   if (isRateRequest(text)) {
-    return [ratesToText(await getRates(env))]
+    return [intro, ratesToText(await getRates(env))]
   }
 
   if (isHandoverRequest) {
     try { await saveInquiry(env, from, text, 'HANDOVER REQUEST') } catch (e) {}
-    return [`A PSG representative will contact you shortly. 📞\n\nPlease share:\n*Name:*\n*Company:*\n*City:*\n*Best time to call:*`]
+    return [intro, `A PSG representative will contact you shortly. 📞\n\nPlease share:\n*Name:*\n*Company:*\n*City:*\n*Best time to call:*`]
   }
 
   if (isHotLead(text)) {
@@ -597,7 +622,6 @@ async function computePersonalReply(env, from, rawText, label) {
     const pieces = extractPieces(text)
     if (pieces > 1) preData.quantity = String(pieces)
 
-    const intro = `You've reached the PSG AI Assistant — I'll help you with your ${gt || 'enquiry'} from here.`
     const newSession = { step: 0, data: preData }
     return [intro, ...(await advancePersonalLead(env, from, newSession))]
   }
@@ -608,7 +632,7 @@ async function computePersonalReply(env, from, rawText, label) {
   conversation.push({ role: 'assistant', content: aiReply })
   await setConversation(env, from, conversation)
   try { await saveInquiry(env, from, text, aiReply) } catch (e) {}
-  return [aiReply]
+  return [intro, aiReply]
 }
 
 async function handlePersonalWebhook(request, env) {
@@ -616,10 +640,10 @@ async function handlePersonalWebhook(request, env) {
     return new Response('Unauthorized', { status: 401 })
   }
   try {
-    const { from, text, label } = await request.json()
+    const { from, text, label, to, timestamp } = await request.json()
     if (!from || !text) return new Response(JSON.stringify({ messages: [] }), { headers: { 'Content-Type': 'application/json' } })
     console.log(`[personal:${label}] [${from}]: ${text}`)
-    const messages = await computePersonalReply(env, from, text, label)
+    const messages = await computePersonalReply(env, from, text, label, to, timestamp)
     return new Response(JSON.stringify({ messages }), { headers: { 'Content-Type': 'application/json' } })
   } catch (err) {
     console.log('PERSONAL ERROR:', err.message)
