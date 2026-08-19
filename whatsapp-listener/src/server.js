@@ -41,6 +41,28 @@ function normalizeFrom(waId) {
   return String(waId).split('@')[0]
 }
 
+// whatsapp-web.js's 'disconnected' event doesn't reliably fire when the phone unlinks the
+// session remotely (WhatsApp > Settings > Linked Devices > unlink) — the cached entry.state can
+// stay stuck on "ready" indefinitely even though the phone has fully removed the link. Actively
+// re-checking client.getState() against WhatsApp's own connection status catches this instead of
+// trusting the last event we happened to receive. Returns true if entry.state was corrected.
+async function refreshLiveState(label, entry) {
+  if (!entry || entry.state !== 'ready') return false
+  try {
+    const liveState = await entry.client.getState()
+    if (liveState !== 'CONNECTED') {
+      console.log(`[${label}] stale "ready" detected — real state is ${liveState || 'null'}, marking disconnected`)
+      entry.state = 'disconnected'
+      return true
+    }
+  } catch (err) {
+    console.log(`[${label}] getState() check failed (${err.message}) — treating as disconnected`)
+    entry.state = 'disconnected'
+    return true
+  }
+  return false
+}
+
 function buildClient(label) {
   const client = new Client({
     authStrategy: new LocalAuth({ clientId: label }),
@@ -142,6 +164,7 @@ app.post('/sessions/:label/start', requireAuth, async (req, res) => {
   const { label } = req.params
   const { phone } = req.body || {}
   let entry = sessions.get(label)
+  await refreshLiveState(label, entry)
 
   if (entry && entry.state === 'ready') {
     return res.json({ state: 'ready', message: `${label} is already linked and listening.` })
@@ -181,9 +204,10 @@ app.post('/sessions/:label/start', requireAuth, async (req, res) => {
   return res.json({ state: entry.state, qrDataUrl: entry.qrDataUrl })
 })
 
-app.get('/sessions/:label/status', requireAuth, (req, res) => {
+app.get('/sessions/:label/status', requireAuth, async (req, res) => {
   const entry = sessions.get(req.params.label)
   if (!entry) return res.json({ state: 'not_started' })
+  await refreshLiveState(req.params.label, entry)
   res.json({ state: entry.state, pairingCode: entry.pairingCode, qrDataUrl: entry.qrDataUrl })
 })
 
