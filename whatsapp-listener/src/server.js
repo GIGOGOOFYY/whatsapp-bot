@@ -22,6 +22,21 @@ if (!API_KEY || !WORKER_BASE_URL) {
   process.exit(1)
 }
 
+// whatsapp-web.js drives a real Chromium page and occasionally throws from deep inside its own
+// internals when that page navigates/reloads unexpectedly (e.g. "Execution context was destroyed")
+// — these aren't errors any of our own try/catch blocks can reach, because they surface on
+// puppeteer's internal event loop, not inside a request we're handling. Without these handlers,
+// ONE such glitch on ANY single linked session crashes this whole Node process — killing every
+// other linked number's connection too, not just the one that hit the glitch. Logging and
+// surviving is far better than a full crash; the affected session's own event handlers
+// (auth_failure/disconnected) still update its state normally when the underlying issue resolves.
+process.on('uncaughtException', (err) => {
+  console.log('[UNCAUGHT EXCEPTION — listener stayed up]', (err && (err.stack || err.message)) || err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.log('[UNHANDLED REJECTION — listener stayed up]', (reason && (reason.stack || reason.message)) || reason)
+})
+
 const app = express()
 app.use(express.json())
 
